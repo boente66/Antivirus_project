@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+
+  <!-- engrenagem externa -->
+  <circle cx="32" cy="32" r="20"
+          fill="none"
+          stroke="#7F8C8D"
+          stroke-width="4"/>
+
+  <!-- centro -->
+  <circle cx="32" cy="32" r="8"
+          fill="#7F8C8D"/>
+
+  <!-- dentes -->
+  <rect x="30" y="4" width="4" height="10" fill="#7F8C8D"/>
+  <rect x="30" y="50" width="4" height="10" fill="#7F8C8D"/>
+  <rect x="4" y="30" width="10" height="4" fill="#7F8C8D"/>
+  <rect x="50" y="30" width="10" height="4" fill="#7F8C8D"/>
+
+</svg>

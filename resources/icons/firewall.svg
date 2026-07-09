@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+
+  <!-- muro -->
+  <rect x="8" y="26" width="48" height="28"
+        fill="none"
+        stroke="#E67E22"
+        stroke-width="4"/>
+
+  <!-- tijolos -->
+  <line x1="8" y1="40" x2="56" y2="40"
+        stroke="#E67E22"
+        stroke-width="3"/>
+
+  <line x1="20" y1="26" x2="20" y2="40"
+        stroke="#E67E22"
+        stroke-width="3"/>
+
+  <line x1="44" y1="26" x2="44" y2="40"
+        stroke="#E67E22"
+        stroke-width="3"/>
+
+  <!-- chama -->
+  <path d="M32 10
+           C28 16, 36 18, 32 26
+           C40 22, 38 14, 32 10"
+        fill="#E74C3C"/>
+
+</svg>

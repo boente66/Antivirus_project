@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+
+  <!-- disco -->
+  <circle cx="32" cy="32" r="22"
+          fill="none"
+          stroke="#3498DB"
+          stroke-width="4"/>
+
+  <!-- centro -->
+  <circle cx="32" cy="32" r="6"
+          fill="#3498DB"/>
+
+  <!-- marcador de leitura -->
+  <line x1="32" y1="32" x2="48" y2="20"
+        stroke="#3498DB"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+</svg>

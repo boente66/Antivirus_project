@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+
+  <!-- lixeira -->
+  <rect x="18" y="22" width="28" height="32"
+        fill="none"
+        stroke="#C0392B"
+        stroke-width="4"
+        rx="3"/>
+
+  <!-- tampa -->
+  <rect x="14" y="16" width="36" height="6"
+        fill="#C0392B"/>
+
+  <!-- linhas internas -->
+  <line x1="26" y1="28" x2="26" y2="48"
+        stroke="#C0392B"
+        stroke-width="3"/>
+
+  <line x1="32" y1="28" x2="32" y2="48"
+        stroke="#C0392B"
+        stroke-width="3"/>
+
+  <line x1="38" y1="28" x2="38" y2="48"
+        stroke="#C0392B"
+        stroke-width="3"/>
+
+</svg>

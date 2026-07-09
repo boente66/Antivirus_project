@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+
+  <!-- caixa -->
+  <rect x="12" y="20" width="40" height="30"
+        fill="none"
+        stroke="#F39C12"
+        stroke-width="4"
+        rx="4"/>
+
+  <!-- tampa -->
+  <rect x="10" y="16" width="44" height="8"
+        fill="#F39C12"/>
+
+  <!-- cadeado -->
+  <rect x="26" y="32" width="12" height="10"
+        fill="#F39C12"
+        rx="2"/>
+
+  <path d="M28 32 v-4 a4 4 0 0 1 8 0 v4"
+        fill="none"
+        stroke="#F39C12"
+        stroke-width="3"/>
+
+</svg>
