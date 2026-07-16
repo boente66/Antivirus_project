@@ -77,6 +77,7 @@ class FirewallService:
     # =========================================
 
     def allow_port(self, port):
+        result = self.engine.allow_port(port)
 
         self.rule_service.add_rule(
             name=f"Allow Port {port}",
@@ -85,9 +86,10 @@ class FirewallService:
             action="allow"
         )
 
-        return self.engine.allow_port(port)
+        return result
 
     def block_port(self, port):
+        result = self.engine.block_port(port)
 
         self.rule_service.add_rule(
             name=f"Block Port {port}",
@@ -96,7 +98,7 @@ class FirewallService:
             action="deny"
         )
 
-        return self.engine.block_port(port)
+        return result
 
     def list_rules(self):
 

@@ -130,11 +130,21 @@ class QuarantineController(QObject):
     # =====================================================
 
     def _safe_remove(self, entity):
+        target_id = getattr(entity, "id", None)
+        target_path = getattr(entity, "quarantine_path", None)
+
+        def is_same_item(item):
+            if target_id is not None:
+                return getattr(item, "id", None) == target_id
+
+            return (
+                getattr(item, "quarantine_path", None) == target_path
+            )
 
         self._items = [
 
             item for item in self._items
 
-            if getattr(item, "id", None) != getattr(entity, "id", None)
+            if not is_same_item(item)
 
         ]

@@ -163,7 +163,7 @@ class ScanService:
         action: str
     ):
 
-        self.history_repo.add_threat(
+        return self.history_repo.add_threat(
 
             scan_id=scan_id,
 
@@ -211,6 +211,10 @@ class ScanService:
     def get_scan_history(self, limit=100):
 
         return self.history_repo.get_recent_scans(limit)
+
+    def get_scan_threats(self, scan_id):
+
+        return self.history_repo.get_threats_by_scan(scan_id)
 
     # ==================================================
     # STATUS DO CLAMAV

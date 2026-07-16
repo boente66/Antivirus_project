@@ -244,14 +244,14 @@ class FirewallView(QWidget):
 
         try:
 
-            self.controller.add_rule(
+            message = self.controller.add_rule(
                 "Bloquear Porta 8080",
                 8080,
                 "TCP",
                 "block"
             )
 
-            self.log_message("Regra adicionada: Bloquear Porta 8080")
+            self.log_message(message)
 
         except Exception as e:
             self.log_message(f"Erro ao adicionar regra: {e}")

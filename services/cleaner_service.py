@@ -183,18 +183,18 @@ class CleanerService:
 
             user=os.getenv("USER", os.getenv("USERNAME", "unknown")),
 
-            timestamp=datetime.now(),
+            timestamp=datetime.now().isoformat(),
 
             total_items=removed,
 
             total_size=freed,
 
-            require_admin=require_admin,
+            permanent=require_admin,
 
             details="\n".join(logs),
         )
 
-        self.repository.save(entity)
+        self.repository.insert(entity)
 
         return removed, freed
 
@@ -217,7 +217,7 @@ class CleanerService:
 
         try:
 
-            if path == Path("/"):
+            if path == Path(path.anchor):
                 return False
 
             if hasattr(self.adapter, "get_system_directories"):
@@ -226,23 +226,43 @@ class CleanerService:
 
                 for c in critical:
 
-                    if path == Path(c):
+                    critical_path = Path(c).expanduser().resolve()
+
+                    if self._is_same_or_child(path, critical_path):
                         return False
 
         except Exception:
             pass
 
-        if str(path).startswith(str(base_path)):
+        if self._is_same_or_child(path, base_path):
             return True
 
         if hasattr(self.adapter, "get_temp_directories"):
 
             for temp in self.adapter.get_temp_directories():
 
-                if str(path).startswith(temp):
+                if not temp:
+                    continue
+
+                temp_path = Path(temp).expanduser().resolve()
+
+                if self._is_same_or_child(path, temp_path):
                     return True
 
         return False
+
+    def _is_same_or_child(self, path: Path, parent: Path):
+        if path == parent:
+            return True
+
+        if parent == Path(parent.anchor):
+            return False
+
+        try:
+            path.relative_to(parent)
+            return True
+        except ValueError:
+            return False
 
     # =====================================================
     # 📦 CALCULAR TAMANHO

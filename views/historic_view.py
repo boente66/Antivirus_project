@@ -141,6 +141,25 @@ class HistoricView(QWidget):
         total = getattr(scan, "total_files", 0)
 
         infected = getattr(scan, "infected_files", 0)
+        threats = getattr(scan, "threats", []) or []
+        threat_lines = ""
+
+        if threats:
+            formatted_threats = []
+
+            for threat in threats:
+                formatted_threats.append(
+                    "- "
+                    f"{getattr(threat, 'virus_name', 'desconhecido')} | "
+                    f"{getattr(threat, 'action', '-')} | "
+                    f"{getattr(threat, 'file_path', '-')}"
+                )
+
+            threat_lines = (
+                "Ameaças registradas:\n"
+                + "\n".join(formatted_threats)
+                + "\n"
+            )
 
         return (
             "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -151,6 +170,7 @@ class HistoricView(QWidget):
             f"Arquivos escaneados: {total}\n"
             f"Infectados: {infected}\n"
             f"Status: {status}\n"
+            f"{threat_lines}"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         )
 

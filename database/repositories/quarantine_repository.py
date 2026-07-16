@@ -14,7 +14,7 @@ class QuarantineRepository(Database):
     # INSERT
     # ---------------------------
     def insert(self, entity: QuarantineEntity):
-        self.execute_query(
+        cursor = self.execute_query(
             """
             INSERT INTO quarantine (
                 original_path,
@@ -27,6 +27,11 @@ class QuarantineRepository(Database):
             entity.to_tuple()
         )
 
+        if cursor is not None:
+            entity.id = cursor.lastrowid
+
+        return entity.id
+
     # ---------------------------
     # LISTAR TODOS
     # ---------------------------
@@ -34,6 +39,7 @@ class QuarantineRepository(Database):
         rows = self.fetch_all(
             """
             SELECT
+                id,
                 original_path,
                 quarantine_path,
                 virus_name,
@@ -50,7 +56,8 @@ class QuarantineRepository(Database):
                 row["quarantine_path"],
                 row["virus_name"],
                 row["date"],
-                row["status"]
+                row["status"],
+                id=row["id"]
             )
             for row in rows
         ]
@@ -63,6 +70,15 @@ class QuarantineRepository(Database):
             "DELETE FROM quarantine WHERE quarantine_path = ?",
             (quarantine_path,)
         )
+
+    def delete(self, entity_or_path):
+        quarantine_path = getattr(
+            entity_or_path,
+            "quarantine_path",
+            entity_or_path
+        )
+
+        self.delete_by_path(quarantine_path)
 
     # ---------------------------
     # UPDATE STATUS

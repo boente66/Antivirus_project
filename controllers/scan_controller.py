@@ -218,12 +218,19 @@ class ScanController(QObject):
     def _on_finished(self, results):
 
         infected = len([r for r in results if r.infected])
+        total_files = infected
+
+        if self.worker is not None:
+            total_files = max(
+                getattr(self.worker, "scanned_files", 0),
+                infected
+            )
 
         try:
 
             self.scan_service.finish_scan(
                 scan_id=self.current_scan_id,
-                total_files=len(results),
+                total_files=total_files,
                 infected_files=infected
             )
 

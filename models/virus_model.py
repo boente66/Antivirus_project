@@ -1,5 +1,5 @@
 class Virus:
-    def __init__(self, name, path, detection_date=None, virus_type=None, recommended_action=None):
+    def __init__(self, name, path=None, detection_date=None, virus_type=None, recommended_action=None):
         self.name = name
         self.path = path
         self.detection_date = detection_date

@@ -71,9 +71,9 @@ class ThreatActionService:
             return self.ACTION_IGNORE
 
         try:
-            path = str(Path(file_path).resolve()).lower()
+            path = Path(file_path).resolve()
         except Exception:
-            path = file_path.lower()
+            return self.ACTION_IGNORE
 
         # --------------------------------
         # arquivos do sistema nunca devem
@@ -82,6 +82,9 @@ class ThreatActionService:
 
         if self._is_system_path(path):
             return self.ACTION_IGNORE
+
+        if virus_name:
+            return self.ACTION_QUARANTINE
 
         # --------------------------------
         # cálculo de score
@@ -96,14 +99,8 @@ class ThreatActionService:
         # decisão baseada em score
         # --------------------------------
 
-        if score >= 80:
-            return self.ACTION_QUARANTINE
-
-        if score >= 40:
-            return self.ACTION_QUARANTINE
-
         if score >= 20:
-            return self.ACTION_DELETE
+            return self.ACTION_QUARANTINE
 
         return self.ACTION_IGNORE
 
@@ -111,13 +108,30 @@ class ThreatActionService:
     # REGRAS
     # ======================================================
 
-    def _is_system_path(self, path: str) -> bool:
-
-        path = path.lower()
+    def _is_system_path(self, path: Path) -> bool:
 
         for p in self.system_paths:
+            try:
+                critical = Path(p).resolve()
 
-            if path.startswith(p) or path.startswith(p + os.sep):
+                if path == critical:
+                    return True
+
+                if critical.anchor == str(critical):
+                    continue
+
+                path.relative_to(critical)
+
                 return True
+
+            except ValueError:
+                continue
+
+            except Exception:
+                path_text = str(path).lower()
+                critical_text = str(p).lower().rstrip(os.sep)
+
+                if path_text == critical_text:
+                    return True
 
         return False

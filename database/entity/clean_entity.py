@@ -6,8 +6,10 @@ class CleanEntity:
         total_items,
         total_size,
         permanent,
-        details
+        details,
+        id=None
     ):
+        self.id = id
         self.user = user
         self.timestamp = timestamp
         self.total_items = total_items
@@ -26,4 +28,3 @@ class CleanEntity:
             self.permanent,
             self.details
         )
-    

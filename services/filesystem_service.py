@@ -59,6 +59,20 @@ else:
 # UTILIDADES
 # =====================================================
 
+def _is_same_or_child(path: Path, parent: Path) -> bool:
+    if path == parent:
+        return True
+
+    if parent.anchor == str(parent):
+        return False
+
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def expand_patterns(pattern: str) -> List[str]:
 
     if any(ch in pattern for ch in "*?[]"):
@@ -84,7 +98,7 @@ def is_critical(path: str) -> bool:
 
             crit_p = Path(crit).resolve()
 
-            if p == crit_p or crit_p in p.parents:
+            if _is_same_or_child(p, crit_p):
                 return True
 
     except Exception:
@@ -209,9 +223,6 @@ def safe_move_from_quarantine(source: str, destination: str) -> bool:
             return False
 
         if is_critical(str(dst)):
-            return False
-
-        if not is_within_home(str(dst)):
             return False
 
         dst.parent.mkdir(parents=True, exist_ok=True)
