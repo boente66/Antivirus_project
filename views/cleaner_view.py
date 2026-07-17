@@ -6,7 +6,6 @@ from PyQt5.QtWidgets import (
 import platform
 
 from controllers.cleaner_controller import CleanerController
-from services.cleaner_service import CleanerService
 
 
 class CleanerView(QtWidgets.QWidget):
@@ -18,8 +17,8 @@ class CleanerView(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.service = CleanerService()
-        self.controller = CleanerController(self.service)
+        self.controller = CleanerController()
+        self.service = self.controller.service
 
         self._running = False
 

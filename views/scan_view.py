@@ -178,9 +178,12 @@ class ScanView(QtWidgets.QWidget):
 
         try:
 
+            if not result or not getattr(result, "infected", False):
+                return
+
             file_path = getattr(result.detected_file, "path", "desconhecido")
             virus_name = getattr(result.virus, "name", "desconhecido")
-            action = getattr(result, "action", "-")
+            action = getattr(result, "action", None) or "-"
 
             row = self.threats_table.rowCount()
             self.threats_table.insertRow(row)

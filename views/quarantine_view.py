@@ -51,12 +51,14 @@ class QuarantineView(QWidget):
         # Tabela
         # --------------------------------------------------
 
-        self.table = QTableWidget(0, 3)
+        self.table = QTableWidget(0, 5)
 
         self.table.setHorizontalHeaderLabels([
             "Arquivo",
-            "Caminho",
-            "Data"
+            "Caminho original",
+            "Ameaça",
+            "Data",
+            "Status/Ação"
         ])
 
         self.table.setSelectionBehavior(
@@ -81,6 +83,14 @@ class QuarantineView(QWidget):
 
         header.setSectionResizeMode(
             2, QHeaderView.ResizeToContents
+        )
+
+        header.setSectionResizeMode(
+            3, QHeaderView.ResizeToContents
+        )
+
+        header.setSectionResizeMode(
+            4, QHeaderView.ResizeToContents
         )
 
         layout.addWidget(self.table)
@@ -119,39 +129,21 @@ class QuarantineView(QWidget):
             self.delete_selected
         )
 
-        try:
-            self.controller.item_added.connect(
-                self.refresh
-            )
-        except Exception:
-            pass
-
-        try:
-            self.controller.item_removed.connect(
-                self.refresh
-            )
-        except Exception:
-            pass
-
-        try:
-            self.controller.error.connect(
-                self.show_error
-            )
-        except Exception:
-            pass
+        self.controller.item_added.connect(self.refresh)
+        self.controller.item_removed.connect(self.refresh)
+        self.controller.items_refreshed.connect(self._populate)
+        self.controller.error.connect(self.show_error)
 
     # ======================================================
     # REFRESH
     # ======================================================
 
     def refresh(self):
+        self._populate(self.controller.get_items())
+
+    def _populate(self, items):
 
         self.table.setRowCount(0)
-
-        try:
-            items = self.controller.get_items()
-        except Exception:
-            items = []
 
         if not items:
 
@@ -163,20 +155,15 @@ class QuarantineView(QWidget):
         self.restore_btn.setEnabled(True)
         self.delete_btn.setEnabled(True)
 
-        try:
-
-            items = sorted(
-                items,
-                key=lambda x: getattr(
-                    x, "date", None
-                ) or getattr(
-                    x, "timestamp", None
-                ),
-                reverse=True
-            )
-
-        except Exception:
-            pass
+        items = sorted(
+            items,
+            key=lambda x: getattr(
+                x, "date", None
+            ) or getattr(
+                x, "timestamp", None
+            ) or "",
+            reverse=True
+        )
 
         for item in items:
 
@@ -184,7 +171,7 @@ class QuarantineView(QWidget):
 
             self.table.insertRow(row)
 
-            filename, path, date = self._extract_data(
+            filename, path, threat, date, status = self._extract_data(
                 item
             )
 
@@ -210,7 +197,17 @@ class QuarantineView(QWidget):
 
             self.table.setItem(
                 row, 2,
+                QTableWidgetItem(threat)
+            )
+
+            self.table.setItem(
+                row, 3,
                 QTableWidgetItem(date)
+            )
+
+            self.table.setItem(
+                row, 4,
+                QTableWidgetItem(status)
             )
 
     # ======================================================
@@ -225,13 +222,16 @@ class QuarantineView(QWidget):
                 "original_path"
             ) or item.get(
                 "path"
-            )
+            ) or ""
 
             date = item.get(
                 "date"
             ) or item.get(
                 "timestamp"
             )
+
+            threat = item.get("virus_name") or ""
+            status = item.get("action") or item.get("status") or ""
 
         else:
 
@@ -255,6 +255,13 @@ class QuarantineView(QWidget):
                 None
             )
 
+            threat = getattr(item, "virus_name", "") or ""
+            status = (
+                getattr(item, "action", None)
+                or getattr(item, "status", "")
+                or ""
+            )
+
         filename = os.path.basename(path)
 
         if isinstance(date, datetime):
@@ -268,7 +275,7 @@ class QuarantineView(QWidget):
 
             date = str(date) if date else ""
 
-        return filename, path, date
+        return filename, path, threat, date, status
 
     # ======================================================
     # SELEÇÃO
@@ -297,6 +304,11 @@ class QuarantineView(QWidget):
         item = self._get_selected_item()
 
         if not item:
+            QMessageBox.warning(
+                self,
+                "Restaurar Arquivo",
+                "Selecione um item da quarentena."
+            )
             return
 
         confirm = QMessageBox.question(
@@ -318,9 +330,14 @@ class QuarantineView(QWidget):
         item = self._get_selected_item()
 
         if not item:
+            QMessageBox.warning(
+                self,
+                "Excluir Definitivamente",
+                "Selecione um item da quarentena."
+            )
             return
 
-        confirm = QMessageBox.warning(
+        confirm = QMessageBox.question(
             self,
             "Excluir Definitivamente",
             "Esta ação NÃO pode ser desfeita.\n\n"
@@ -330,7 +347,7 @@ class QuarantineView(QWidget):
 
         if confirm == QMessageBox.Yes:
 
-            self.controller.delete_item(item)
+            self.controller.delete_item(item, confirmed=True)
 
     # ======================================================
     # ERROR

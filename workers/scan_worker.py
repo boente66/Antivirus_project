@@ -110,8 +110,10 @@ class ScanWorker(QThread):
                     except FileNotFoundError:
                         continue
 
-                    except Exception:
-                        continue
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Falha ao analisar '{file_path}': {exc}"
+                        ) from exc
 
                     # ----------------------------------
                     # Atualizar progresso

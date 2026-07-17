@@ -1,20 +1,24 @@
 from datetime import datetime
+from typing import Optional
 
 from models.detected_file import DetectedFile
+from models.virus_model import Virus
 
 
 class ScanResult:
+    """Represents the result of a scan operation on a file."""
+
     def __init__(
         self,
         file_path=None,
         status=None,
         signature=None,
-        infected=False,
+        infected: bool = False,
         datetime_scanned=None,
         *,
-        detected_file=None,
-        virus=None,
-        action=None
+        detected_file: Optional[DetectedFile] = None,
+        virus: Optional[Virus] = None,
+        action: Optional[str] = None
     ):
         if detected_file is None and hasattr(file_path, "path"):
             detected_file = file_path
@@ -34,7 +38,7 @@ class ScanResult:
 
         self.detected_file = detected_file
         self.virus = virus
-        self.infected = infected
+        self.infected = bool(infected)
         self.action = action
 
         self.file_path = file_path

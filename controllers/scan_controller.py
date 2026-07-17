@@ -6,7 +6,6 @@ from workers.scan_worker import ScanWorker
 from services.scan_service import ScanService
 from services.threat_action_service import ThreatActionService
 from services.quarantine_service import QuarantineService
-from services.filesystem_service import safe_remove
 
 
 class ScanController(QObject):
@@ -28,7 +27,7 @@ class ScanController(QObject):
     # INIT
     # --------------------------------------------------
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, quarantine_service=None):
 
         super().__init__(parent)
 
@@ -40,7 +39,7 @@ class ScanController(QObject):
 
         self.scan_service = ScanService()
         self.threat_action_service = ThreatActionService()
-        self.quarantine_service = QuarantineService()
+        self.quarantine_service = quarantine_service or QuarantineService()
 
         # ----------------------------------------
         # CONTROLE
@@ -48,6 +47,7 @@ class ScanController(QObject):
 
         self.worker = None
         self.current_scan_id = None
+        self.scan_failed = False
 
     # --------------------------------------------------
     # START SCAN
@@ -80,6 +80,8 @@ class ScanController(QObject):
     # --------------------------------------------------
 
     def _start_scan(self, profile, path=None):
+
+        self.scan_failed = False
 
         try:
 
@@ -136,6 +138,9 @@ class ScanController(QObject):
 
     def _on_threat(self, result):
 
+        if not result or not result.infected:
+            return
+
         file_path = result.detected_file.path
         virus_name = result.virus.name
 
@@ -163,17 +168,11 @@ class ScanController(QObject):
                     virus_name
                 )
 
-            except Exception:
-                pass
-
-        elif action == ThreatActionService.ACTION_DELETE:
-
-            try:
-
-                safe_remove([file_path])
-
-            except Exception:
-                pass
+            except Exception as exc:
+                result.action = "quarantine_failed"
+                self.scan_error.emit(
+                    f"Falha ao colocar '{file_path}' em quarentena: {exc}"
+                )
 
         # ----------------------------------------
         # HISTÓRICO
@@ -185,11 +184,14 @@ class ScanController(QObject):
                 scan_id=self.current_scan_id,
                 detected_file=result.detected_file,
                 virus=result.virus,
-                action=action
+                action=result.action
             )
 
-        except Exception:
-            pass
+        except Exception as exc:
+            self.scan_error.emit(
+                f"Falha ao registrar ameaça '{virus_name}' para "
+                f"'{file_path}': {exc}"
+            )
 
         self.threat_detected.emit(result)
 
@@ -199,6 +201,8 @@ class ScanController(QObject):
 
     def _on_error(self, message):
 
+        self.scan_failed = True
+
         try:
 
             self.scan_service.mark_scan_failed(
@@ -206,8 +210,10 @@ class ScanController(QObject):
                 reason=message
             )
 
-        except Exception:
-            pass
+        except Exception as exc:
+            message = (
+                f"{message}; falha ao registrar o estado do scan: {exc}"
+            )
 
         self.scan_error.emit(message)
 
@@ -226,16 +232,20 @@ class ScanController(QObject):
                 infected
             )
 
-        try:
+        if not self.scan_failed:
 
-            self.scan_service.finish_scan(
-                scan_id=self.current_scan_id,
-                total_files=total_files,
-                infected_files=infected
-            )
+            try:
 
-        except Exception:
-            pass
+                self.scan_service.finish_scan(
+                    scan_id=self.current_scan_id,
+                    total_files=total_files,
+                    infected_files=infected
+                )
+
+            except Exception as exc:
+                self.scan_error.emit(
+                    f"Falha ao finalizar o registro do scan: {exc}"
+                )
 
         self.scan_finished.emit(results)
 
@@ -248,12 +258,16 @@ class ScanController(QObject):
         if not self.worker:
             return
 
+        self.scan_failed = True
+
         try:
 
             self.worker.stop()
 
-        except Exception:
-            pass
+        except Exception as exc:
+            self.scan_error.emit(
+                f"Falha ao interromper o worker de scan: {exc}"
+            )
 
         try:
 
@@ -262,8 +276,10 @@ class ScanController(QObject):
                 reason="SCAN_CANCELLED_BY_USER"
             )
 
-        except Exception:
-            pass
+        except Exception as exc:
+            self.scan_error.emit(
+                f"Falha ao registrar o cancelamento do scan: {exc}"
+            )
 
     # --------------------------------------------------
     # HISTORY

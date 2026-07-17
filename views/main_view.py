@@ -30,9 +30,12 @@ class MainView(QtWidgets.QMainWindow):
         # Controllers
         # --------------------------------------------------
 
-        self.scan_controller = ScanController(parent=self)
-        self.cleaner_controller = CleanerController()
         self.quarantine_controller = QuarantineController()
+        self.scan_controller = ScanController(
+            parent=self,
+            quarantine_service=self.quarantine_controller.service
+        )
+        self.cleaner_controller = CleanerController()
 
         # --------------------------------------------------
         # Layout principal
@@ -61,6 +64,8 @@ class MainView(QtWidgets.QMainWindow):
         # --------------------------------------------------
 
         self._create_pages()
+
+        self.scan_controller.scan_started.connect(self.show_scan_view)
 
         self.show_status()
 
@@ -272,6 +277,10 @@ class MainView(QtWidgets.QMainWindow):
         self.header_label.setText("Verificação")
         self.stack.setCurrentWidget(self.scan_view)
         self.scan_controller.start_smart_scan()
+
+    def show_scan_view(self):
+        self.header_label.setText("Verificação")
+        self.stack.setCurrentWidget(self.scan_view)
 
     # ==================================================
     # PROTECTION
