@@ -5,6 +5,7 @@ from .handler import RansomwareProtectionHandler
 
 
 class RansomwareEngine:
+    """Engine to monitor and protect against ransomware threats."""
     def __init__(self, path_to_monitor, quarantine_folder, callback):
         self.path_to_monitor = path_to_monitor
         self.quarantine_folder = quarantine_folder
