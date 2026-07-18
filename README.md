@@ -32,3 +32,9 @@ A execução de comandos do sistema é controlada e validada, evitando riscos de
 O sistema é compatível com Linux, Windows e macOS. Cada sistema possui características específicas, como gerenciamento de processos, permissões e ferramentas nativas.
 Através do uso do PlatformAdapter, o sistema adapta seu comportamento automaticamente. No Linux, utiliza comandos como ps e ufw; no Windows, utiliza tasklist e netsh; no macOS, utiliza ferramentas nativas do sistema.
 Essa abordagem garante que o software funcione de forma consistente, independentemente do sistema operacional, mantendo uma experiência uniforme ao usuário.
+
+## Licença
+
+Este projeto é distribuído sob a [Licença MIT](LICENSE). Para informações sobre
+a aplicação da licença em conjunto com normas brasileiras obrigatórias, consulte
+o [aviso jurídico para utilização no Brasil](NOTICE-BR.md).
