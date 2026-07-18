@@ -1,21 +1,137 @@
-MIT License
+LICENÇA DE USO NÃO COMERCIAL E USO COMERCIAL SOB AUTORIZAÇÃO PRÉVIA
+Versão 1.0 — 2026
 
-Copyright (c) 2026 Leonardo Boente
+Copyright (c) 2026 Leonardo Boente. Todos os direitos reservados.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. OBJETO
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Esta licença regula o uso do software Antivirus Project, incluindo seu
+código-fonte, código executável e documentação fornecida em conjunto
+(coletivamente, o "Software"), sem transferir a titularidade dos direitos
+autorais.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. PERMISSÃO PARA USO NÃO COMERCIAL
+
+Enquanto forem cumpridos os termos desta licença, o titular concede uma
+licença limitada, não exclusiva, gratuita e intransferível para:
+
+a) executar e reproduzir o Software para uso pessoal, estudo, ensino,
+pesquisa acadêmica, avaliação técnica ou pesquisa de segurança, desde que
+sem finalidade comercial;
+
+b) modificar o Software para as mesmas finalidades não comerciais; e
+
+c) distribuir cópias não comerciais, modificadas ou não, desde que sejam
+mantidos este arquivo, os avisos de direito autoral, o NOTICE-BR.md e a
+indicação clara das modificações realizadas.
+
+Qualquer distribuição autorizada por esta cláusula deverá permanecer sujeita
+a esta mesma licença. Não é permitido sublicenciar ou oferecer direitos mais
+amplos do que os aqui concedidos.
+
+3. USO COMERCIAL
+
+É proibido usar, reproduzir, modificar, distribuir, sublicenciar, oferecer,
+explorar ou disponibilizar o Software para finalidade comercial sem
+autorização prévia, expressa e escrita do titular dos direitos autorais.
+
+Considera-se finalidade comercial, entre outras hipóteses:
+
+a) vender, alugar, licenciar ou cobrar pelo Software ou por cópias dele;
+
+b) incorporar o Software a produto, serviço, equipamento ou solução paga;
+
+c) disponibilizá-lo como serviço, inclusive SaaS, serviço gerenciado,
+consultoria, suporte ou treinamento remunerado;
+
+d) utilizá-lo em atividade empresarial ou profissional quando o Software
+apoiar produção, operação, prestação de serviços, geração de receita,
+vantagem comercial ou redução relevante de custos;
+
+e) utilizá-lo para publicidade, captação de clientes, monetização de dados,
+revenda ou distribuição promocional vinculada a atividade econômica; ou
+
+f) explorar economicamente modificações, derivações ou partes substanciais
+do Software.
+
+Avaliação interna e temporária destinada exclusivamente a decidir sobre uma
+possível contratação comercial não autoriza uso em produção nem prestação de
+serviços a terceiros.
+
+4. AUTORIZAÇÃO COMERCIAL
+
+O interessado deverá solicitar uma licença comercial ao titular antes de
+iniciar qualquer uso comercial. A solicitação poderá ser iniciada pelos canais
+de contato informados no repositório oficial:
+
+https://github.com/boente66/Antivirus_project
+
+A autorização somente será válida quando constar de documento ou comunicação
+escrita emitida pelo titular, identificando, no mínimo, o autorizado e o escopo
+do uso. A abertura de issue, o envio de solicitação, o silêncio ou a ausência
+de resposta não constituem autorização.
+
+Condições como prazo, território, remuneração, distribuição, sublicenciamento,
+suporte e garantias deverão constar da autorização comercial específica.
+
+5. RESTRIÇÕES GERAIS
+
+Sem prejuízo das limitações legais obrigatórias, é proibido:
+
+a) remover ou ocultar avisos de autoria, titularidade ou licenciamento;
+
+b) declarar que o titular endossa produto, serviço ou organização sem
+autorização escrita;
+
+c) usar nomes, marcas, logotipos ou identidade visual do projeto além do
+necessário para identificar corretamente o Software; e
+
+d) utilizar ou distribuir o Software em desacordo com a legislação aplicável.
+
+Esta licença não concede direitos sobre marcas, nomes empresariais, segredos
+industriais, patentes ou componentes de terceiros.
+
+6. COMPONENTES DE TERCEIROS
+
+Bibliotecas, mecanismos, ícones e outros componentes de terceiros permanecem
+sujeitos às licenças e aos avisos de seus respectivos titulares. Esta licença
+abrange somente os direitos que Leonardo Boente esteja autorizado a licenciar.
+
+7. VERSÕES ANTERIORES
+
+Esta licença aplica-se às versões do Software que sejam distribuídas com este
+texto. Cópias ou versões que tenham sido validamente recebidas sob a Licença
+MIT permanecem sujeitas aos termos da licença que acompanhava aquela
+distribuição. Esta licença não pretende retirar retroativamente permissões já
+concedidas para essas cópias anteriores.
+
+8. RESCISÃO
+
+Os direitos concedidos por esta licença cessam automaticamente em caso de
+descumprimento. Após a cessação, o infrator deverá interromper o uso e a
+distribuição das versões regidas por esta licença, sem prejuízo das obrigações
+e responsabilidades já constituídas.
+
+9. AUSÊNCIA DE GARANTIA
+
+O Software é fornecido no estado em que se encontra, sem garantias contratuais
+expressas ou implícitas. Na máxima extensão permitida pela legislação
+aplicável, o titular não será responsável por perdas ou danos decorrentes do
+uso ou da impossibilidade de uso do Software.
+
+Nenhuma disposição desta licença exclui ou limita direito, garantia ou
+responsabilidade que não possa ser validamente afastada por norma obrigatória,
+inclusive quando houver relação de consumo.
+
+10. LEGISLAÇÃO APLICÁVEL
+
+Esta licença será interpretada de acordo com a legislação brasileira,
+especialmente a Lei nº 9.609/1998 e a Lei nº 9.610/1998, preservadas as normas
+obrigatórias, as limitações legais aos direitos autorais e as regras legais de
+competência aplicáveis a cada caso.
+
+11. NATUREZA DA LICENÇA
+
+Esta é uma licença de código-fonte disponível com restrição de uso comercial.
+Ela não é a Licença MIT e não é uma licença de código aberto aprovada pela Open
+Source Initiative, pois o uso comercial depende de autorização adicional.

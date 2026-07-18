@@ -35,6 +35,12 @@ Essa abordagem garante que o software funcione de forma consistente, independent
 
 ## Licença
 
-Este projeto é distribuído sob a [Licença MIT](LICENSE). Para informações sobre
-a aplicação da licença em conjunto com normas brasileiras obrigatórias, consulte
-o [aviso jurídico para utilização no Brasil](NOTICE-BR.md).
+Este projeto é distribuído sob a [Licença de Uso Não Comercial e Uso Comercial
+sob Autorização Prévia](LICENSE). O uso pessoal, acadêmico, educacional, de
+avaliação e de pesquisa sem finalidade comercial é permitido nas condições da
+licença. **Qualquer uso comercial exige autorização prévia, expressa e escrita
+de Leonardo Boente.**
+
+Esta é uma licença de código-fonte disponível com restrição comercial; não é a
+Licença MIT nem uma licença open source aprovada pela Open Source Initiative.
+Consulte também o [aviso jurídico para utilização no Brasil](NOTICE-BR.md).
