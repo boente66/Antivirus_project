@@ -30,3 +30,9 @@ class RansomwareEngine:
     def stop(self):
         self.observer.stop()
         self.observer.join()
+
+    def start_protection(self):
+        self.start()
+
+    def stop_protection(self):
+        self.stop()

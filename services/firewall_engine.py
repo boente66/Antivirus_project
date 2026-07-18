@@ -9,83 +9,77 @@ class FirewallEngine:
     def __init__(self, engine_type):
         self.engine_type = engine_type
 
+    def _ensure_supported(self):
+        if self.engine_type != "ufw":
+            raise RuntimeError("Engine de firewall não suportada")
+
+    def _validate_port(self, port):
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            raise ValueError("Porta inválida")
+
+        if port < 1 or port > 65535:
+            raise ValueError("Porta fora do intervalo permitido")
+
+        return port
+
+    def _run(self, command, timeout=30):
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(message or "Comando de firewall falhou")
+
+        return result.stdout.strip()
+
     # ----------------------------------------
     # STATUS
     # ----------------------------------------
     def status(self):
+        self._ensure_supported()
 
-        if self.engine_type == "ufw":
-
-            result = subprocess.run(
-                ["ufw", "status"],
-                capture_output=True,
-                text=True
-            )
-
-            return result.stdout
-
-        return "Firewall não suportado"
+        return self._run(["ufw", "status"], timeout=10)
 
     # ----------------------------------------
     # ATIVAR
     # ----------------------------------------
     def enable(self):
+        self._ensure_supported()
+        self._run(["pkexec", "ufw", "--force", "enable"])
 
-        if self.engine_type == "ufw":
-
-            subprocess.run(
-                ["pkexec", "ufw", "enable"],
-                check=False
-            )
-
-            return "Firewall ativado"
-
-        return "Engine não suportada"
+        return "Firewall ativado"
 
     # ----------------------------------------
     # DESATIVAR
     # ----------------------------------------
     def disable(self):
+        self._ensure_supported()
+        self._run(["pkexec", "ufw", "disable"])
 
-        if self.engine_type == "ufw":
-
-            subprocess.run(
-                ["pkexec", "ufw", "disable"],
-                check=False
-            )
-
-            return "Firewall desativado"
-
-        return "Engine não suportada"
+        return "Firewall desativado"
 
     # ----------------------------------------
     # PERMITIR PORTA
     # ----------------------------------------
     def allow_port(self, port):
+        self._ensure_supported()
+        port = self._validate_port(port)
+        self._run(["pkexec", "ufw", "allow", str(port)])
 
-        if self.engine_type == "ufw":
-
-            subprocess.run(
-                ["pkexec", "ufw", "allow", str(port)],
-                check=False
-            )
-
-            return f"Porta {port} liberada"
-
-        return "Engine não suportada"
+        return f"Porta {port} liberada"
 
     # ----------------------------------------
     # BLOQUEAR PORTA
     # ----------------------------------------
     def block_port(self, port):
+        self._ensure_supported()
+        port = self._validate_port(port)
+        self._run(["pkexec", "ufw", "deny", str(port)])
 
-        if self.engine_type == "ufw":
-
-            subprocess.run(
-                ["pkexec", "ufw", "deny", str(port)],
-                check=False
-            )
-
-            return f"Porta {port} bloqueada"
-
-        return "Engine não suportada"
+        return f"Porta {port} bloqueada"

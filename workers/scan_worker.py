@@ -22,6 +22,9 @@ class ScanWorker(QThread):
 
         self.running = True
         self.results = []
+        self.total_files = 0
+        self.scanned_files = 0
+        self.failed_files = 0
 
     # --------------------------------------------------
     # PROCESSO PRINCIPAL
@@ -47,6 +50,7 @@ class ScanWorker(QThread):
                     )
 
             if not self.running:
+                self.finished.emit(self.results)
                 return
 
             # ------------------------------------------
@@ -62,7 +66,7 @@ class ScanWorker(QThread):
             # Contar arquivos para progresso
             # ------------------------------------------
 
-            total_files = self._count_files(targets)
+            self.total_files = self._count_files(targets)
 
             scanned = 0
 
@@ -81,6 +85,7 @@ class ScanWorker(QThread):
                         break
 
                     scanned += 1
+                    self.scanned_files = scanned
 
                     self.file_changed.emit(file_path)
 
@@ -102,20 +107,24 @@ class ScanWorker(QThread):
                             self.threat_found.emit(result)
 
                     except PermissionError:
+                        self.failed_files += 1
                         continue
 
                     except FileNotFoundError:
+                        self.failed_files += 1
                         continue
 
-                    except Exception:
-                        continue
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Falha ao analisar '{file_path}': {exc}"
+                        ) from exc
 
                     # ----------------------------------
                     # Atualizar progresso
                     # ----------------------------------
 
                     try:
-                        percent = int((scanned / total_files) * 100)
+                        percent = int((scanned / self.total_files) * 100)
                     except Exception:
                         percent = 0
 

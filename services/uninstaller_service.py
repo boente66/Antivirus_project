@@ -1,4 +1,5 @@
 import subprocess
+import shutil
 from typing import Callable, Tuple, List
 from pathlib import Path
 from core.platform.platform_factory import PlatformFactory
@@ -28,10 +29,15 @@ class UninstallerService:
             for p in programs:
 
                 if isinstance(p, dict):
-                    normalized.append(p.get("name", ""))
+                    name = p.get("name", "")
 
                 else:
-                    normalized.append(str(p))
+                    name = str(p)
+
+                name = name.strip()
+
+                if name:
+                    normalized.append(name)
 
             return sorted(normalized)
 
@@ -52,16 +58,45 @@ class UninstallerService:
         if not program_name:
             return False, "Nome do programa inválido."
 
+        program_name = program_name.strip()
+
+        if not self._is_safe_program_name(program_name):
+            return False, "Nome do programa contém caracteres inválidos."
+
+        installed_name = self._find_installed_name(program_name)
+
+        if not installed_name:
+            return False, "Programa não encontrado na lista de instalados."
+
         if self.os_type == "Linux":
-            return self._uninstall_linux(program_name, password, progress_cb)
+            return self._uninstall_linux(installed_name, password, progress_cb)
 
         if self.os_type == "Windows":
-            return self._uninstall_windows(program_name, progress_cb)
+            return self._uninstall_windows(installed_name, progress_cb)
 
         if self.os_type == "macOS":
-            return self._uninstall_mac(program_name, password, progress_cb)
+            return self._uninstall_mac(installed_name, password, progress_cb)
 
         return False, "Sistema operacional não suportado."
+
+    def _is_safe_program_name(self, program_name: str) -> bool:
+        if not program_name:
+            return False
+
+        if any(ch in program_name for ch in ("/", "\\", "\x00")):
+            return False
+
+        return not any(ord(ch) < 32 for ch in program_name)
+
+    def _find_installed_name(self, program_name: str) -> str | None:
+        installed = self.list_installed()
+        requested = program_name.casefold()
+
+        for name in installed:
+            if name.casefold() == requested:
+                return name
+
+        return None
 
     # --------------------------------------------------
     # LINUX
@@ -81,6 +116,8 @@ class UninstallerService:
         ]
 
         for manager in managers:
+            if shutil.which(manager[0]) is None:
+                continue
 
             cmd = ["sudo", "-S"] + manager
 
@@ -104,13 +141,24 @@ class UninstallerService:
 
             cmd = [
                 "powershell",
+                "-NoProfile",
                 "-Command",
-                f"Get-WmiObject -Class Win32_Product "
-                f"| Where-Object {{$_.Name -eq '{program}'}} "
-                "| ForEach-Object {{$_.Uninstall()}}"
+                "$name = $args[0]; "
+                "Get-CimInstance -ClassName Win32_Product "
+                "| Where-Object { $_.Name -eq $name } "
+                "| ForEach-Object { $_.Uninstall() }",
+                program
             ]
 
-            subprocess.check_call(cmd)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            if result.returncode != 0:
+                return False, result.stderr.strip() or result.stdout.strip()
 
             if progress_cb:
                 progress_cb(100, "Desinstalação concluída.")
@@ -133,6 +181,11 @@ class UninstallerService:
 
         if not app_path.exists():
             return False, "Aplicativo não encontrado."
+
+        try:
+            app_path.resolve().relative_to(Path("/Applications").resolve())
+        except ValueError:
+            return False, "Caminho do aplicativo inválido."
 
         cmd = ["sudo", "-S", "rm", "-rf", str(app_path)]
 

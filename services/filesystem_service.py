@@ -4,6 +4,7 @@ import os
 import shutil
 import glob
 import platform
+from uuid import uuid4
 from pathlib import Path
 from typing import Iterable, List
 
@@ -59,6 +60,20 @@ else:
 # UTILIDADES
 # =====================================================
 
+def _is_same_or_child(path: Path, parent: Path) -> bool:
+    if path == parent:
+        return True
+
+    if parent.anchor == str(parent):
+        return False
+
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def expand_patterns(pattern: str) -> List[str]:
 
     if any(ch in pattern for ch in "*?[]"):
@@ -84,7 +99,7 @@ def is_critical(path: str) -> bool:
 
             crit_p = Path(crit).resolve()
 
-            if p == crit_p or crit_p in p.parents:
+            if _is_same_or_child(p, crit_p):
                 return True
 
     except Exception:
@@ -146,82 +161,219 @@ def calculate_size(paths: Iterable[str]) -> int:
 # QUARENTENA
 # =====================================================
 
-def _generate_quarantine_name(p: Path) -> Path:
+def _resolve_absolute(path: str, operation: str) -> Path:
+    candidate = Path(path).expanduser()
 
-    base = QUARANTINE_DIR / f"{p.name}_{abs(hash(str(p))) % 10000000}"
+    if not candidate.is_absolute():
+        raise ValueError(f"{operation}: caminho relativo não permitido: {path}")
 
-    target = base
-    i = 1
-
-    while target.exists():
-
-        target = QUARANTINE_DIR / f"{base.name}_{i}"
-
-        i += 1
-
-    return target
+    return candidate.resolve(strict=False)
 
 
-def move_to_quarantine_single(path: str) -> str:
+def _quarantine_root(quarantine_dir=QUARANTINE_DIR) -> Path:
+    root = Path(quarantine_dir).expanduser()
 
+    if not root.is_absolute():
+        raise ValueError(
+            f"Quarentena: diretório relativo não permitido: {quarantine_dir}"
+        )
+
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve(strict=True)
+
+
+def is_within_quarantine(path: str, quarantine_dir=QUARANTINE_DIR) -> bool:
     try:
-
-        p = Path(path).resolve()
-
-        if not p.exists():
-            return ""
-
-        if is_critical(str(p)):
-            return ""
-
-        target = _generate_quarantine_name(p)
-
-        shutil.move(str(p), str(target))
-
-        return str(target)
-
-    except Exception:
-        return ""
+        candidate = _resolve_absolute(path, "Quarentena")
+        root = _quarantine_root(quarantine_dir)
+        return candidate != root and candidate.is_relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
-def safe_move_to_quarantine(paths: Iterable[str]) -> List[str]:
+def _generate_quarantine_name(p: Path, quarantine_dir=QUARANTINE_DIR) -> Path:
+    root = _quarantine_root(quarantine_dir)
+
+    while True:
+        target = root / f"{uuid4().hex}_{p.name}"
+
+        if not target.exists():
+            return target
+
+
+def move_to_quarantine_single(
+    path: str,
+    quarantine_dir=QUARANTINE_DIR
+) -> str:
+    source_input = Path(path).expanduser()
+
+    if source_input.is_symlink():
+        raise ValueError(
+            f"Adicionar à quarentena: link simbólico não permitido: {path}"
+        )
+
+    source = _resolve_absolute(path, "Adicionar à quarentena")
+
+    if not source.exists():
+        raise FileNotFoundError(
+            f"Adicionar à quarentena: arquivo não encontrado: {source}"
+        )
+
+    if not source.is_file():
+        raise ValueError(
+            f"Adicionar à quarentena: origem não é um arquivo: {source}"
+        )
+
+    if is_critical(str(source)):
+        raise PermissionError(
+            f"Adicionar à quarentena: caminho crítico bloqueado: {source}"
+        )
+
+    if is_within_quarantine(str(source), quarantine_dir):
+        raise ValueError(
+            f"Adicionar à quarentena: arquivo já está na quarentena: {source}"
+        )
+
+    target = _generate_quarantine_name(source, quarantine_dir)
+    shutil.move(str(source), str(target))
+
+    if source.exists() or not target.is_file():
+        raise RuntimeError(
+            f"Adicionar à quarentena: movimento não confirmado: "
+            f"{source} -> {target}"
+        )
+
+    return str(target)
+
+
+def safe_move_to_quarantine(
+    paths: Iterable[str],
+    quarantine_dir=QUARANTINE_DIR
+) -> List[str]:
 
     moved = []
 
     for p in paths:
 
-        dest = move_to_quarantine_single(p)
-
-        if dest:
-            moved.append(dest)
+        moved.append(move_to_quarantine_single(p, quarantine_dir))
 
     return moved
 
 
-def safe_move_from_quarantine(source: str, destination: str) -> bool:
+def _available_restore_path(destination: Path) -> Path:
+    if not destination.exists() and not destination.is_symlink():
+        return destination
 
-    try:
+    for index in range(1, 10000):
+        candidate = destination.with_name(
+            f"{destination.stem}_restored_{index}{destination.suffix}"
+        )
 
-        src = Path(source).resolve()
-        dst = Path(destination).resolve()
+        if not candidate.exists() and not candidate.is_symlink():
+            return candidate
 
-        if not src.exists():
-            return False
+    raise FileExistsError(
+        f"Restaurar quarentena: não foi possível gerar nome alternativo para "
+        f"{destination}"
+    )
 
-        if is_critical(str(dst)):
-            return False
 
-        if not is_within_home(str(dst)):
-            return False
+def safe_move_from_quarantine(
+    source: str,
+    destination: str,
+    quarantine_dir=QUARANTINE_DIR,
+    rename_on_conflict: bool = True
+) -> str:
+    source_input = Path(source).expanduser()
 
-        dst.parent.mkdir(parents=True, exist_ok=True)
+    if source_input.is_symlink():
+        raise ValueError(
+            f"Restaurar quarentena: link simbólico não permitido: {source}"
+        )
 
-        shutil.move(str(src), str(dst))
+    src = _resolve_absolute(source, "Restaurar quarentena")
 
-        return True
+    if not is_within_quarantine(str(src), quarantine_dir):
+        raise PermissionError(
+            f"Restaurar quarentena: origem fora da quarentena: {src}"
+        )
 
-    except Exception:
-        return False
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"Restaurar quarentena: arquivo não encontrado: {src}"
+        )
+
+    dst = _resolve_absolute(destination, "Restaurar quarentena")
+
+    if is_within_quarantine(str(dst), quarantine_dir):
+        raise PermissionError(
+            f"Restaurar quarentena: destino dentro da quarentena: {dst}"
+        )
+
+    if is_critical(str(dst)):
+        raise PermissionError(
+            f"Restaurar quarentena: destino crítico bloqueado: {dst}"
+        )
+
+    if dst.exists() or dst.is_symlink():
+        if not rename_on_conflict:
+            raise FileExistsError(
+                f"Restaurar quarentena: destino já existe: {dst}"
+            )
+
+        dst = _available_restore_path(dst)
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst = dst.resolve(strict=False)
+
+    if is_within_quarantine(str(dst), quarantine_dir):
+        raise PermissionError(
+            f"Restaurar quarentena: destino resolvido dentro da quarentena: {dst}"
+        )
+
+    shutil.move(str(src), str(dst))
+
+    if src.exists() or not dst.is_file():
+        raise RuntimeError(
+            f"Restaurar quarentena: movimento não confirmado: {src} -> {dst}"
+        )
+
+    return str(dst)
+
+
+def remove_quarantined_file(path: str, quarantine_dir=QUARANTINE_DIR) -> str:
+    path_input = Path(path).expanduser()
+
+    if path_input.is_symlink():
+        raise ValueError(
+            f"Excluir quarentena: link simbólico não permitido: {path}"
+        )
+
+    target = _resolve_absolute(path, "Excluir quarentena")
+
+    if not is_within_quarantine(str(target), quarantine_dir):
+        raise PermissionError(
+            f"Excluir quarentena: caminho fora da quarentena: {target}"
+        )
+
+    if not target.exists():
+        raise FileNotFoundError(
+            f"Excluir quarentena: arquivo não encontrado: {target}"
+        )
+
+    if not target.is_file():
+        raise ValueError(
+            f"Excluir quarentena: caminho não é arquivo: {target}"
+        )
+
+    target.unlink()
+
+    if target.exists():
+        raise RuntimeError(
+            f"Excluir quarentena: exclusão não confirmada: {target}"
+        )
+
+    return str(target)
 
 
 # =====================================================

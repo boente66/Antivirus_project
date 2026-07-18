@@ -1,219 +1,262 @@
-from PyQt5.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QTextEdit,
-    QPushButton,
-    QMessageBox,
-    QHBoxLayout
-)
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class HistoricView(QWidget):
-
-    MAX_LINES = 800
-
-    # ==================================================
-    # INIT
-    # ==================================================
+    PAGE_SIZE = 50
+    THREAT_PAGE_SIZE = 50
+    SCAN_TYPE_LABELS = {
+        "smart": "Inteligente",
+        "quick": "Rápido",
+        "full": "Completo",
+        "custom": "Personalizado",
+    }
 
     def __init__(self, scan_controller):
-
         super().__init__()
-
         self.scan_controller = scan_controller
-
+        self.page = 0
+        self.threat_page = 0
+        self.selected_scan_id = None
+        self.selected_scan = None
+        self._loaded_once = False
         self.init_ui()
 
-    # ==================================================
-    # UI
-    # ==================================================
-
     def init_ui(self):
-
         self.setWindowTitle("Histórico de Verificações")
-
         layout = QVBoxLayout(self)
-
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # -------------------------------------------------
-        # TÍTULO
-        # -------------------------------------------------
-
-        self.title_label = QLabel("Histórico de Verificações")
-
-        self.title_label.setAlignment(Qt.AlignCenter)
-
-        self.title_label.setStyleSheet("""
-            font-size:22px;
-            font-weight:bold;
-            margin-bottom:10px;
-            color:#2C3E50;
-        """)
-
-        layout.addWidget(self.title_label)
-
-        # -------------------------------------------------
-        # LOGS
-        # -------------------------------------------------
-
-        self.logs_text = QTextEdit()
-
-        self.logs_text.setReadOnly(True)
-
-        self.logs_text.setStyleSheet("""
-            background:#FFFFFF;
-            border:1px solid #D0D0D0;
-            border-radius:8px;
-            padding:8px;
-            font-size:14px;
-        """)
-
-        layout.addWidget(self.logs_text)
-
-        # -------------------------------------------------
-        # BOTÕES
-        # -------------------------------------------------
-
-        buttons_layout = QHBoxLayout()
-
-        self.load_logs_button = QPushButton("Carregar Histórico")
-
-        self.load_logs_button.setStyleSheet("""
-            QPushButton {
-                background-color:#3498DB;
-                color:white;
-                padding:10px 18px;
-                font-size:14px;
-                border-radius:6px;
-            }
-            QPushButton:hover {
-                background-color:#2E86C1;
-            }
-        """)
-
-        self.load_logs_button.clicked.connect(
-            self.load_scan_history
+        title = QLabel("Histórico de Verificações")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            "font-size:22px;font-weight:bold;margin-bottom:10px;color:#2C3E50;"
         )
+        layout.addWidget(title)
 
-        self.clear_button = QPushButton("Limpar")
-
-        self.clear_button.setStyleSheet("""
-            QPushButton {
-                background-color:#95A5A6;
-                color:white;
-                padding:10px 18px;
-                font-size:14px;
-                border-radius:6px;
-            }
-            QPushButton:hover {
-                background-color:#7F8C8D;
-            }
-        """)
-
-        self.clear_button.clicked.connect(
-            self.logs_text.clear
+        self.scan_table = QTableWidget(0, 6)
+        self.scan_table.setHorizontalHeaderLabels(
+            ["Início", "Tipo", "Alvo", "Arquivos", "Ameaças", "Status"]
         )
-
-        buttons_layout.addWidget(self.load_logs_button)
-        buttons_layout.addWidget(self.clear_button)
-
-        layout.addLayout(buttons_layout)
-
-    # ==================================================
-    # FORMATAR REGISTRO
-    # ==================================================
-
-    def _format_scan(self, scan):
-
-        status = getattr(scan, "status", "UNKNOWN")
-
-        user = getattr(scan, "user", "—")
-
-        start = getattr(scan, "start_time", "—")
-
-        end = getattr(scan, "end_time", None) or "—"
-
-        directory = getattr(scan, "directory_scanned", "—")
-
-        total = getattr(scan, "total_files", 0)
-
-        infected = getattr(scan, "infected_files", 0)
-
-        return (
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Usuário: {user}\n"
-            f"Início: {start}\n"
-            f"Fim: {end}\n"
-            f"Pasta: {directory}\n"
-            f"Arquivos escaneados: {total}\n"
-            f"Infectados: {infected}\n"
-            f"Status: {status}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        self.scan_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.scan_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.scan_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.scan_table.setAlternatingRowColors(True)
+        self.scan_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents
         )
+        self.scan_table.horizontalHeader().setStretchLastSection(True)
+        self.scan_table.itemSelectionChanged.connect(self._load_selected_scan)
+        layout.addWidget(self.scan_table)
 
-    # ==================================================
-    # CARREGAR HISTÓRICO
-    # ==================================================
+        scan_navigation = QHBoxLayout()
+        self.previous_button = QPushButton("Anterior")
+        self.next_button = QPushButton("Próxima")
+        self.page_label = QLabel("Página 1")
+        self.reload_button = QPushButton("Atualizar")
+        self.previous_button.clicked.connect(self.previous_page)
+        self.next_button.clicked.connect(self.next_page)
+        self.reload_button.clicked.connect(self.load_scan_history)
+        scan_navigation.addWidget(self.previous_button)
+        scan_navigation.addWidget(self.page_label)
+        scan_navigation.addWidget(self.next_button)
+        scan_navigation.addStretch()
+        scan_navigation.addWidget(self.reload_button)
+        layout.addLayout(scan_navigation)
+
+        self.details_label = QLabel("Selecione um scan para ver as ameaças.")
+        self.details_label.setWordWrap(True)
+        layout.addWidget(self.details_label)
+
+        self.threat_table = QTableWidget(0, 4)
+        self.threat_table.setHorizontalHeaderLabels(
+            ["Data", "Ameaça", "Ação", "Caminho"]
+        )
+        self.threat_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.threat_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.threat_table.setAlternatingRowColors(True)
+        self.threat_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents
+        )
+        self.threat_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.threat_table)
+
+        threat_navigation = QHBoxLayout()
+        self.previous_threat_button = QPushButton("Ameaças anteriores")
+        self.next_threat_button = QPushButton("Próximas ameaças")
+        self.threat_page_label = QLabel("Página 1")
+        self.previous_threat_button.clicked.connect(self.previous_threat_page)
+        self.next_threat_button.clicked.connect(self.next_threat_page)
+        threat_navigation.addWidget(self.previous_threat_button)
+        threat_navigation.addWidget(self.threat_page_label)
+        threat_navigation.addWidget(self.next_threat_button)
+        threat_navigation.addStretch()
+        layout.addLayout(threat_navigation)
+
+        self._update_navigation(scan_count=0, threat_count=0)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._loaded_once:
+            self.load_scan_history()
 
     def load_scan_history(self):
-
         try:
-
-            scans = self.scan_controller.get_scan_history()
-
-            self.logs_text.clear()
-
-            if not scans:
-
-                self.logs_text.append(
-                    "Nenhum histórico encontrado."
-                )
-
-                return
-
-            for scan in scans:
-
-                text = self._format_scan(scan)
-
-                self.logs_text.append(text)
-
-            self._limit_logs()
-
-            scrollbar = self.logs_text.verticalScrollBar()
-
-            if scrollbar:
-                scrollbar.setValue(scrollbar.maximum())
-
-        except Exception as e:
-
-            QMessageBox.critical(
-                self,
-                "Erro",
-                f"Falha ao carregar histórico:\n{e}"
+            scans = self.scan_controller.get_scan_history(
+                limit=self.PAGE_SIZE,
+                offset=self.page * self.PAGE_SIZE,
             )
+            self._populate_scans(scans)
+            self._loaded_once = True
+        except Exception as exc:
+            self._show_error(f"Falha ao carregar histórico:\n{exc}")
 
-    # ==================================================
-    # LIMITAR TAMANHO DO LOG
-    # ==================================================
+    def _populate_scans(self, scans):
+        self.scan_table.blockSignals(True)
+        self.scan_table.setRowCount(0)
+        self.selected_scan_id = None
+        self.selected_scan = None
+        self.threat_table.setRowCount(0)
+        self.details_label.setText(
+            "Nenhum histórico encontrado."
+            if not scans
+            else "Selecione um scan para ver as ameaças."
+        )
 
-    def _limit_logs(self):
+        for scan in scans:
+            row = self.scan_table.rowCount()
+            self.scan_table.insertRow(row)
+            start_item = QTableWidgetItem(str(scan.start_time or "—"))
+            start_item.setData(Qt.UserRole, scan.id)
+            start_item.setData(Qt.UserRole + 1, scan)
+            values = (
+                start_item,
+                QTableWidgetItem(self._scan_type_label(scan.scan_type)),
+                QTableWidgetItem(str(scan.directory_scanned or "—")),
+                QTableWidgetItem(str(scan.total_files or 0)),
+                QTableWidgetItem(str(scan.threat_count or 0)),
+                QTableWidgetItem(str(scan.status or "unknown")),
+            )
+            for column, item in enumerate(values):
+                self.scan_table.setItem(row, column, item)
 
-        doc = self.logs_text.document()
+        self.scan_table.blockSignals(False)
+        self.page_label.setText(f"Página {self.page + 1}")
+        self._update_navigation(scan_count=len(scans), threat_count=0)
 
-        if doc.blockCount() <= self.MAX_LINES:
+    def _load_selected_scan(self):
+        row = self.scan_table.currentRow()
+        if row < 0:
+            return
+        item = self.scan_table.item(row, 0)
+        if item is None:
             return
 
-        cursor = self.logs_text.textCursor()
+        self.selected_scan_id = item.data(Qt.UserRole)
+        self.selected_scan = item.data(Qt.UserRole + 1)
+        self.threat_page = 0
+        self.load_scan_details()
 
-        while doc.blockCount() > self.MAX_LINES:
+    def load_scan_details(self):
+        if not self.selected_scan_id:
+            return
 
-            cursor.movePosition(cursor.Start)
+        try:
+            threats = self.scan_controller.get_scan_threats(
+                self.selected_scan_id,
+                limit=self.THREAT_PAGE_SIZE,
+                offset=self.threat_page * self.THREAT_PAGE_SIZE,
+            )
+        except Exception as exc:
+            self._show_error(
+                f"Falha ao carregar detalhes do scan {self.selected_scan_id}:\n{exc}"
+            )
+            return
 
-            cursor.select(cursor.LineUnderCursor)
+        scan = self.selected_scan
+        if scan is None:
+            self.details_label.setText("O scan selecionado não existe mais.")
+            self.threat_table.setRowCount(0)
+            return
 
-            cursor.removeSelectedText()
+        error_text = f" | Erro: {scan.error_message}" if scan.error_message else ""
+        self.details_label.setText(
+            f"Scan #{scan.id} | Fim: {scan.end_time or '—'} | "
+            f"Tratadas: {scan.treated_threats} | Falhas: {scan.failed_files}"
+            f"{error_text}"
+        )
+        self._populate_threats(threats)
 
-            cursor.deleteChar()
+    def _populate_threats(self, threats):
+        self.threat_table.setRowCount(0)
+        for threat in threats:
+            row = self.threat_table.rowCount()
+            self.threat_table.insertRow(row)
+            values = (
+                threat.detection_time or "—",
+                threat.virus_name or "desconhecida",
+                threat.action or "—",
+                threat.file_path or "—",
+            )
+            for column, value in enumerate(values):
+                self.threat_table.setItem(
+                    row,
+                    column,
+                    QTableWidgetItem(str(value)),
+                )
+
+        self.threat_page_label.setText(f"Página {self.threat_page + 1}")
+        self._update_navigation(
+            scan_count=self.scan_table.rowCount(),
+            threat_count=len(threats),
+        )
+
+    def previous_page(self):
+        if self.page > 0:
+            self.page -= 1
+            self.load_scan_history()
+
+    def next_page(self):
+        if self.scan_table.rowCount() == self.PAGE_SIZE:
+            self.page += 1
+            self.load_scan_history()
+
+    def previous_threat_page(self):
+        if self.selected_scan_id and self.threat_page > 0:
+            self.threat_page -= 1
+            self.load_scan_details()
+
+    def next_threat_page(self):
+        if (
+            self.selected_scan_id
+            and self.threat_table.rowCount() == self.THREAT_PAGE_SIZE
+        ):
+            self.threat_page += 1
+            self.load_scan_details()
+
+    def _update_navigation(self, scan_count, threat_count):
+        self.previous_button.setEnabled(self.page > 0)
+        self.next_button.setEnabled(scan_count == self.PAGE_SIZE)
+        self.previous_threat_button.setEnabled(self.threat_page > 0)
+        self.next_threat_button.setEnabled(
+            bool(self.selected_scan_id)
+            and threat_count == self.THREAT_PAGE_SIZE
+        )
+
+    def _show_error(self, message):
+        QMessageBox.critical(self, "Erro", message)
+
+    def _scan_type_label(self, scan_type):
+        normalized = str(scan_type or "").strip().lower()
+        return self.SCAN_TYPE_LABELS.get(normalized, normalized or "—")

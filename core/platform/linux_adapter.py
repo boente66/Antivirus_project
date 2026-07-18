@@ -298,9 +298,14 @@ class LinuxAdapter(PlatformAdapter):
             "/boot",
             "/etc",
             "/lib",
+            "/lib64",
+            "/dev",
+            "/root",
+            "/run",
             "/sbin",
             "/sys",
-            "/proc"
+            "/proc",
+            "/var"
         ]
 
     # --------------------------------------------------
@@ -313,3 +318,9 @@ class LinuxAdapter(PlatformAdapter):
             return os.geteuid() == 0
         except Exception:
             return False
+
+    def get_cleaner_capabilities(self):
+        return {
+            "supported": True,
+            "message": "Limpeza segura disponível no Linux.",
+        }

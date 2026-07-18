@@ -1,140 +1,84 @@
+from copy import deepcopy
+
 from PyQt5.QtCore import QThread, pyqtSignal
 
 
 class CleanerWorker(QThread):
-
     progress = pyqtSignal(int)
     log = pyqtSignal(str)
-    finished = pyqtSignal(str)
+    finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
     def __init__(
         self,
         service,
         tasks,
-        target_path,
+        target_path=None,
         require_admin: bool = False,
-        analyze_only: bool = False
+        analyze_only: bool = False,
     ):
         super().__init__()
+        if service is None:
+            raise ValueError("CleanerWorker: service não informado.")
+        if not isinstance(tasks, (list, tuple)):
+            raise ValueError("CleanerWorker: tasks deve ser uma lista ou tupla.")
 
         self.service = service
-        self.tasks = tasks or []
+        self.tasks = tuple(deepcopy(list(tasks)))
         self.target_path = target_path
-        self.require_admin = require_admin
-        self.analyze_only = analyze_only
-
+        self.require_admin = bool(require_admin)
+        self.analyze_only = bool(analyze_only)
         self._running = True
-
-    # --------------------------------------------------
-    # Controle externo
-    # --------------------------------------------------
+        self._finished_emitted = False
 
     def stop(self):
         self._running = False
 
-    # --------------------------------------------------
-    # Execução principal
-    # --------------------------------------------------
-
     def run(self):
+        self.progress.emit(0)
 
         try:
+            operation = "análise" if self.analyze_only else "limpeza"
+            self.log.emit(f"Iniciando {operation} segura...")
 
-            if not self.service:
-                raise ValueError("CleanerWorker: service não informado.")
-
-            if not isinstance(self.tasks, list):
-                raise ValueError("CleanerWorker: tasks deve ser uma lista.")
-
-            if not self._running:
-                return
-
-            # --------------------------------------------------
-            # callbacks seguros
-            # --------------------------------------------------
-
-            def progress_cb(percent):
-
-                if not self._running:
-                    return
-
-                try:
-                    percent = max(0, min(100, int(percent)))
-                except Exception:
-                    percent = 0
-
-                self.progress.emit(percent)
-
-            def log_cb(msg):
-
-                if not self._running:
-                    return
-
-                if isinstance(msg, str):
-                    self.log.emit(msg)
-
-            # ==================================================
-            # 🔎 MODO ANÁLISE
-            # ==================================================
-
+            kwargs = {
+                "tasks": self.tasks,
+                "target_path": self.target_path,
+                "progress_cb": self._emit_progress,
+                "log_cb": self._emit_log,
+                "should_stop": lambda: not self._running,
+            }
             if self.analyze_only:
-
-                log_cb("Iniciando análise de limpeza...")
-
-                total_items_found, total_size = self.service.analyze(
-                    tasks=self.tasks,
-                    target_path=self.target_path,
-                    progress_cb=progress_cb,
-                    log_cb=log_cb,
+                result = self.service.analyze(**kwargs)
+            else:
+                result = self.service.clean(
+                    **kwargs,
+                    require_admin=self.require_admin,
                 )
 
-                if not self._running:
-                    return
-
-                total_size = total_size or 0
-                total_items_found = total_items_found or 0
-
-                size_mb = total_size / 1024 / 1024
-
+            if (
+                not result.get("cancelled")
+                and result.get("status") != "failed"
+            ):
                 self.progress.emit(100)
 
-                self.finished.emit(
-                    f"Análise concluída: {total_items_found} itens "
-                    f"({size_mb:.2f} MB podem ser liberados)"
-                )
+            self._emit_finished(result)
+        except (ValueError, PermissionError, OSError, RuntimeError) as exc:
+            self.error.emit(f"CleanerWorker: falha estrutural: {exc}")
 
-                return
+    def _emit_progress(self, percent):
+        value = max(0, min(100, int(percent)))
+        if value == 100:
+            value = 99
+        if self._running:
+            self.progress.emit(value)
 
-            # ==================================================
-            # 🧹 MODO LIMPEZA
-            # ==================================================
+    def _emit_log(self, message):
+        if isinstance(message, str):
+            self.log.emit(message)
 
-            log_cb("Iniciando processo de limpeza...")
-
-            removed, freed = self.service.clean(
-                tasks=self.tasks,
-                target_path=self.target_path,
-                require_admin=self.require_admin,
-                progress_cb=progress_cb,
-                log_cb=log_cb,
-            )
-
-            if not self._running:
-                return
-
-            removed = removed or 0
-            freed = freed or 0
-
-            freed_mb = freed / 1024 / 1024
-
-            self.progress.emit(100)
-
-            self.finished.emit(
-                f"Limpeza concluída: {removed} itens removidos "
-                f"({freed_mb:.2f} MB liberados)"
-            )
-
-        except Exception as e:
-
-            self.error.emit(str(e))
+    def _emit_finished(self, result):
+        if self._finished_emitted:
+            return
+        self._finished_emitted = True
+        self.finished.emit(result)

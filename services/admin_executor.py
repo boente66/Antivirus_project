@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from system.system_inspector import SystemInspector
+from core.platform.platform_factory import PlatformFactory
 from services.cleaner_service import CleanerService
 
 
@@ -31,7 +31,7 @@ def main():
 
     Chamado via:
 
-        pkexec python -m services.admin_executor '<json_tasks>'
+        JSON de tasks é recebido pela entrada padrão.
     """
 
     # --------------------------------------------------
@@ -40,7 +40,10 @@ def main():
 
     if not _is_root():
 
-        print("Erro: Este módulo deve ser executado como administrador/root.")
+        print(
+            "Erro: Este módulo deve ser executado como administrador/root.",
+            file=sys.stderr
+        )
 
         sys.exit(1)
 
@@ -48,25 +51,24 @@ def main():
     # Validar argumentos
     # --------------------------------------------------
 
-    if len(sys.argv) < 2:
-
-        print("Erro: Nenhuma task recebida.")
-
-        sys.exit(1)
-
     try:
+        payload = sys.stdin.read()
 
-        tasks = json.loads(sys.argv[1])
+        if not payload.strip():
+            print("Erro: Nenhuma task recebida.", file=sys.stderr)
+            sys.exit(1)
+
+        tasks = json.loads(payload)
 
     except Exception as e:
 
-        print(f"Erro ao decodificar JSON: {e}")
+        print(f"Erro ao decodificar JSON: {e}", file=sys.stderr)
 
         sys.exit(1)
 
     if not isinstance(tasks, list):
 
-        print("Erro: Formato inválido de tasks.")
+        print("Erro: Formato inválido de tasks.", file=sys.stderr)
 
         sys.exit(1)
 
@@ -76,13 +78,11 @@ def main():
 
     try:
 
-        inspector = SystemInspector()
-
-        adapter = inspector.get_platform_adapter()
+        adapter = PlatformFactory.create()
 
     except Exception as e:
 
-        print(f"Erro ao inicializar PlatformAdapter: {e}")
+        print(f"Erro ao inicializar PlatformAdapter: {e}", file=sys.stderr)
 
         sys.exit(1)
 
@@ -98,7 +98,7 @@ def main():
 
     try:
 
-        removed, freed = service.clean(
+        result = service.clean(
 
             tasks=tasks,
 
@@ -114,21 +114,12 @@ def main():
 
         )
 
-        freed_mb = freed / 1024 / 1024 if freed else 0.0
-
-        result = {
-            "removed_items": removed,
-            "freed_bytes": freed,
-            "freed_mb": round(freed_mb, 2)
-        }
-
         print(json.dumps(result))
-
-        sys.exit(0)
+        sys.exit(0 if result.get("status") != "failed" else 1)
 
     except Exception as e:
 
-        print(f"Erro durante execução administrativa: {e}")
+        print(f"Erro durante execução administrativa: {e}", file=sys.stderr)
 
         sys.exit(1)
 

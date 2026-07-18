@@ -8,8 +8,13 @@ from services.threat_score_service import ThreatScoreService
 class ThreatActionService:
 
     ACTION_QUARANTINE = "quarantine"
-    ACTION_DELETE = "delete"
+    ACTION_SUGGEST_QUARANTINE = "suggest_quarantine"
+    ACTION_ALERT = "alert"
     ACTION_IGNORE = "ignore"
+
+    SCORE_ALERT = 1
+    SCORE_SUGGEST_QUARANTINE = 20
+    SCORE_AUTO_QUARANTINE = 70
 
     # --------------------------------------------------
     # Diretórios críticos por sistema operacional
@@ -46,9 +51,10 @@ class ThreatActionService:
 
     # --------------------------------------------------
 
-    def __init__(self):
+    def __init__(self, auto_quarantine_enabled=True):
 
         self.scorer = ThreatScoreService()
+        self.auto_quarantine_enabled = bool(auto_quarantine_enabled)
 
         system = platform.system()
 
@@ -71,9 +77,9 @@ class ThreatActionService:
             return self.ACTION_IGNORE
 
         try:
-            path = str(Path(file_path).resolve()).lower()
+            path = Path(file_path).resolve()
         except Exception:
-            path = file_path.lower()
+            return self.ACTION_IGNORE
 
         # --------------------------------
         # arquivos do sistema nunca devem
@@ -96,14 +102,17 @@ class ThreatActionService:
         # decisão baseada em score
         # --------------------------------
 
-        if score >= 80:
-            return self.ACTION_QUARANTINE
+        if score >= self.SCORE_AUTO_QUARANTINE:
+            if self.auto_quarantine_enabled:
+                return self.ACTION_QUARANTINE
 
-        if score >= 40:
-            return self.ACTION_QUARANTINE
+            return self.ACTION_SUGGEST_QUARANTINE
 
-        if score >= 20:
-            return self.ACTION_DELETE
+        if score >= self.SCORE_SUGGEST_QUARANTINE:
+            return self.ACTION_SUGGEST_QUARANTINE
+
+        if virus_name or score >= self.SCORE_ALERT:
+            return self.ACTION_ALERT
 
         return self.ACTION_IGNORE
 
@@ -111,13 +120,30 @@ class ThreatActionService:
     # REGRAS
     # ======================================================
 
-    def _is_system_path(self, path: str) -> bool:
-
-        path = path.lower()
+    def _is_system_path(self, path: Path) -> bool:
 
         for p in self.system_paths:
+            try:
+                critical = Path(p).resolve()
 
-            if path.startswith(p) or path.startswith(p + os.sep):
+                if path == critical:
+                    return True
+
+                if critical.anchor == str(critical):
+                    continue
+
+                path.relative_to(critical)
+
                 return True
+
+            except ValueError:
+                continue
+
+            except Exception:
+                path_text = str(path).lower()
+                critical_text = str(p).lower().rstrip(os.sep)
+
+                if path_text == critical_text:
+                    return True
 
         return False

@@ -190,7 +190,20 @@ class FirewallController:
     def add_rule(self, name, port, protocol, action):
 
         if not name:
-            return
+            return "Nome da regra inválido"
+
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            return "Porta inválida"
+
+        if port < 1 or port > 65535:
+            return "Porta fora do intervalo permitido"
+
+        action = str(action).lower()
+
+        if action not in ("allow", "block", "deny"):
+            return "Ação de firewall inválida"
 
         existing_rule = next(
             (r for r in self.rules if r.name.lower() == name.lower()),
@@ -198,26 +211,28 @@ class FirewallController:
         )
 
         if existing_rule:
-            return
+            return f"Regra '{name}' já existe"
+
+        try:
+
+            if action == "allow":
+                message = self.firewall_service.allow_port(port)
+
+            elif action in ("block", "deny"):
+                message = self.firewall_service.block_port(port)
+
+        except Exception as e:
+            return f"Erro ao aplicar regra: {e}"
 
         rule = FirewallRule(name, port, protocol, action)
 
         self.rules.append(rule)
 
-        try:
-
-            if action == "allow":
-                self.firewall_service.allow_port(port)
-
-            elif action in ("block", "deny"):
-                self.firewall_service.block_port(port)
-
-        except Exception:
-            pass
-
         self.log_action(
             f"Regra adicionada: {name} ({action} - Porta {port})"
         )
+
+        return message
 
     def remove_rule(self, name):
 

@@ -45,10 +45,11 @@ class RansomwareService:
 
             self.engine = RansomwareEngine(
                 directory,
+                self.quarantine_folder,
                 self._enqueue_event
             )
 
-            self.engine.start_protection()
+            self.engine.start()
 
         except Exception as e:
 
@@ -73,7 +74,7 @@ class RansomwareService:
         except Exception as e:
 
             if self.engine:
-                self.engine.stop_protection()
+                self.engine.stop()
                 self.engine = None
 
             raise RuntimeError(
@@ -91,7 +92,7 @@ class RansomwareService:
         if self.engine:
 
             try:
-                self.engine.stop_protection()
+                self.engine.stop()
             except Exception:
                 pass
 

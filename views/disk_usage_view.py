@@ -220,7 +220,7 @@ class DiskUsageView(QtWidgets.QWidget):
             f"Livre: {self._format_size(free)}"
         )
 
-        self.usage_bar.setValue(percent)
+        self.usage_bar.setValue(int(round(percent)))
 
         self._update_chart(used, free)
 
