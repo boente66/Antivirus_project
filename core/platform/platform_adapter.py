@@ -101,3 +101,9 @@ class PlatformAdapter(abc.ABC):
     @abc.abstractmethod
     def has_admin_privileges(self):
         pass
+
+    def get_cleaner_capabilities(self):
+        return {
+            "supported": False,
+            "message": "Limpeza segura ainda não está disponível neste sistema.",
+        }

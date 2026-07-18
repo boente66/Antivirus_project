@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from models.detected_file import DetectedFile
 from models.virus_model import Virus
 from models.scan_result import ScanResult
@@ -17,25 +19,14 @@ class DetectionPipeline:
         # 1️⃣ Signature scan
         # -----------------------------
 
-        result = self.clamav.scan_file(file_path)
-
-        virus_name = None
-        infected = False
-
-        if result:
-
-            infected = True
-
-            try:
-                virus_name = list(result.values())[0][1]
-            except Exception:
-                virus_name = "unknown"
+        clamav_result = self.clamav.scan_file(file_path)
+        infected, virus_name = self._parse_clamav_result(clamav_result)
 
         # -----------------------------
         # 2️⃣ File identification
         # -----------------------------
 
-        file_info = self.identifier.identify(file_path)
+        self.identifier.identify(file_path)
 
         # -----------------------------
         # 3️⃣ Heuristic scoring
@@ -43,8 +34,7 @@ class DetectionPipeline:
 
         score = self.scorer.calculate(
             file_path=file_path,
-            virus_name=virus_name,
-            file_info=file_info
+            virus_name=virus_name
         )
 
         # -----------------------------
@@ -60,15 +50,42 @@ class DetectionPipeline:
         # 5️⃣ Result
         # -----------------------------
 
-        if infected:
+        detected = DetectedFile(path=file_path)
+        virus = Virus(
+            name=virus_name or "",
+            path=file_path,
+            detection_date=datetime.now() if infected else None
+        )
 
-            detected = DetectedFile(path=file_path)
-            virus = Virus(name=virus_name)
+        return ScanResult(
+            detected_file=detected,
+            virus=virus,
+            infected=infected,
+            action=None
+        )
 
-            return ScanResult(
-                detected_file=detected,
-                virus=virus,
-                infected=True
-            )
+    @staticmethod
+    def _parse_clamav_result(result):
+        """Converte a resposta do pyclamd sem mascarar respostas inválidas."""
 
-        return None
+        if not result:
+            return False, None
+
+        if not isinstance(result, dict):
+            raise ValueError("Resposta inválida do ClamAV: esperado um dicionário.")
+
+        try:
+            status, signature = next(iter(result.values()))
+        except (StopIteration, TypeError, ValueError) as exc:
+            raise ValueError("Resposta inválida do ClamAV.") from exc
+
+        if status == "FOUND":
+            if not signature:
+                raise ValueError("ClamAV detectou uma ameaça sem informar a assinatura.")
+
+            return True, str(signature)
+
+        if status == "OK":
+            return False, None
+
+        raise RuntimeError(f"ClamAV não concluiu a análise: {status}")

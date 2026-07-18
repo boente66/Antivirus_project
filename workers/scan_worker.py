@@ -24,6 +24,7 @@ class ScanWorker(QThread):
         self.results = []
         self.total_files = 0
         self.scanned_files = 0
+        self.failed_files = 0
 
     # --------------------------------------------------
     # PROCESSO PRINCIPAL
@@ -49,6 +50,7 @@ class ScanWorker(QThread):
                     )
 
             if not self.running:
+                self.finished.emit(self.results)
                 return
 
             # ------------------------------------------
@@ -105,13 +107,17 @@ class ScanWorker(QThread):
                             self.threat_found.emit(result)
 
                     except PermissionError:
+                        self.failed_files += 1
                         continue
 
                     except FileNotFoundError:
+                        self.failed_files += 1
                         continue
 
-                    except Exception:
-                        continue
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Falha ao analisar '{file_path}': {exc}"
+                        ) from exc
 
                     # ----------------------------------
                     # Atualizar progresso

@@ -33,6 +33,9 @@ class ScanService:
     def __init__(self):
 
         self.history_repo = ScanHistoryRepository()
+        self.recovered_scan_count = (
+            self.history_repo.recover_interrupted_scans(datetime.now())
+        )
 
         # Adapter do sistema operacional
         self.platform = PlatformFactory.get_adapter()
@@ -141,16 +144,11 @@ class ScanService:
     # ==================================================
 
     def start_scan(self, profile, directory):
-
-        return self.history_repo.create_scan(
-
+        return self.history_repo.start_scan(
+            scan_type=profile,
             user=os.getenv("USER") or os.getenv("USERNAME") or "user",
-
-            directory_scanned=str(directory or profile),
-
-            start_time=datetime.now(),
-
-            status="RUNNING"
+            target=str(directory or profile),
+            started_at=datetime.now(),
         )
 
     # --------------------------------------------------
@@ -164,57 +162,57 @@ class ScanService:
     ):
 
         return self.history_repo.add_threat(
-
             scan_id=scan_id,
-
-            file_path=detected_file.path,
-
-            virus_name=virus.name,
-
+            detected_file=detected_file,
+            virus=virus,
             action=action,
-
-            detection_time=datetime.now()
+            detection_date=virus.detection_date or datetime.now(),
         )
+
+    def register_threats(self, scan_id, threats):
+        return self.history_repo.add_threats(scan_id, threats)
 
     # --------------------------------------------------
 
-    def finish_scan(self, scan_id, total_files, infected_files):
-
-        self.history_repo.finish_scan(
-
+    def finish_scan(
+        self,
+        scan_id,
+        total_files,
+        infected_files,
+        status,
+        error=None,
+        treated_threats=0,
+        failed_files=0,
+    ):
+        return self.history_repo.finish_scan(
             scan_id=scan_id,
-
             total_files=total_files,
-
             infected_files=infected_files,
-
-            end_time=datetime.now(),
-
-            status="COMPLETED"
+            treated_threats=treated_threats,
+            failed_files=failed_files,
+            ended_at=datetime.now(),
+            status=status,
+            error=error,
         )
 
     # --------------------------------------------------
 
-    def mark_scan_failed(self, scan_id, reason):
-
-        self.history_repo.update_status(
-
-            scan_id=scan_id,
-
-            status="FAILED_ENGINE",
-
-            error_message=reason
+    def get_scan_history(self, filters=None, limit=50, offset=0):
+        return self.history_repo.get_scans(
+            filters=filters,
+            limit=limit,
+            offset=offset,
         )
 
-    # --------------------------------------------------
+    def get_scan_by_id(self, scan_id):
+        return self.history_repo.get_scan_by_id(scan_id)
 
-    def get_scan_history(self, limit=100):
-
-        return self.history_repo.get_recent_scans(limit)
-
-    def get_scan_threats(self, scan_id):
-
-        return self.history_repo.get_threats_by_scan(scan_id)
+    def get_scan_threats(self, scan_id, limit=None, offset=0):
+        return self.history_repo.get_threats_by_scan(
+            scan_id,
+            limit=limit,
+            offset=offset,
+        )
 
     # ==================================================
     # STATUS DO CLAMAV

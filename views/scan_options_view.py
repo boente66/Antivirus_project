@@ -103,9 +103,10 @@ class CustomScanView(QWidget):
         return "/"
 
     def _close_self(self):
-        """Remove esta view após iniciar o scan"""
-        self.setParent(None)
-        self.deleteLater()
+        """Exibe a tela de progresso sem destruir a página de opções."""
+
+        if self.parent_view and hasattr(self.parent_view, "show_scan_view"):
+            self.parent_view.show_scan_view()
 
     def _btn_style(self, color, hover):
         return f"""

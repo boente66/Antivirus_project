@@ -211,3 +211,33 @@ class MacAdapter(PlatformAdapter):
             pass
 
         return processes
+
+    def get_firewall_status(self):
+        return "unknown"
+
+    def get_system_users(self):
+        return []
+
+    def get_temp_directories(self):
+        return ["/tmp", "/var/tmp"]
+
+    def get_system_directories(self):
+        return [
+            "/", "/System", "/usr", "/bin", "/sbin", "/etc",
+            "/var", "/dev", "/private", "/Library"
+        ]
+
+    def has_admin_privileges(self):
+        try:
+            return os.geteuid() == 0
+        except AttributeError:
+            return False
+
+    def get_cleaner_capabilities(self):
+        return {
+            "supported": False,
+            "message": (
+                "Cleaner no macOS está desabilitado até a validação completa "
+                "de lixeira e autorização administrativa."
+            ),
+        }

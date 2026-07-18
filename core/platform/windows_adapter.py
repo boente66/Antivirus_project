@@ -294,3 +294,12 @@ class WindowsAdapter(PlatformAdapter):
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
         except Exception:
             return False
+
+    def get_cleaner_capabilities(self):
+        return {
+            "supported": False,
+            "message": (
+                "Cleaner no Windows está desabilitado até a validação completa "
+                "de lixeira, UAC e caminhos administrativos."
+            ),
+        }

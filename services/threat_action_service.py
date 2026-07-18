@@ -8,8 +8,13 @@ from services.threat_score_service import ThreatScoreService
 class ThreatActionService:
 
     ACTION_QUARANTINE = "quarantine"
-    ACTION_DELETE = "delete"
+    ACTION_SUGGEST_QUARANTINE = "suggest_quarantine"
+    ACTION_ALERT = "alert"
     ACTION_IGNORE = "ignore"
+
+    SCORE_ALERT = 1
+    SCORE_SUGGEST_QUARANTINE = 20
+    SCORE_AUTO_QUARANTINE = 70
 
     # --------------------------------------------------
     # Diretórios críticos por sistema operacional
@@ -46,9 +51,10 @@ class ThreatActionService:
 
     # --------------------------------------------------
 
-    def __init__(self):
+    def __init__(self, auto_quarantine_enabled=True):
 
         self.scorer = ThreatScoreService()
+        self.auto_quarantine_enabled = bool(auto_quarantine_enabled)
 
         system = platform.system()
 
@@ -83,9 +89,6 @@ class ThreatActionService:
         if self._is_system_path(path):
             return self.ACTION_IGNORE
 
-        if virus_name:
-            return self.ACTION_QUARANTINE
-
         # --------------------------------
         # cálculo de score
         # --------------------------------
@@ -99,8 +102,17 @@ class ThreatActionService:
         # decisão baseada em score
         # --------------------------------
 
-        if score >= 20:
-            return self.ACTION_QUARANTINE
+        if score >= self.SCORE_AUTO_QUARANTINE:
+            if self.auto_quarantine_enabled:
+                return self.ACTION_QUARANTINE
+
+            return self.ACTION_SUGGEST_QUARANTINE
+
+        if score >= self.SCORE_SUGGEST_QUARANTINE:
+            return self.ACTION_SUGGEST_QUARANTINE
+
+        if virus_name or score >= self.SCORE_ALERT:
+            return self.ACTION_ALERT
 
         return self.ACTION_IGNORE
 
