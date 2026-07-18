@@ -50,10 +50,19 @@ class ClamAVClient:
 
     def scan_file(self, file_path):
 
+        """Envia o conteúdo do arquivo ao ClamAV sem expor o caminho ao daemon.
+
+        O daemon costuma executar com um usuário restrito e, por isso, pode não
+        conseguir atravessar diretórios pessoais mesmo quando a aplicação pode
+        ler o arquivo. O comando INSTREAM mantém a leitura sob as permissões do
+        processo da aplicação e transmite o conteúdo em blocos ao engine.
+        """
+
         if not self.client:
             raise RuntimeError("ClamAV não conectado")
 
-        return self.client.scan_file(file_path)
+        with open(file_path, "rb") as file_stream:
+            return self.client.scan_stream(file_stream)
 
     # ------------------------------------------
     # Status

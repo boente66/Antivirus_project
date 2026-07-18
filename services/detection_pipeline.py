@@ -75,17 +75,21 @@ class DetectionPipeline:
             raise ValueError("Resposta inválida do ClamAV: esperado um dicionário.")
 
         try:
-            status, signature = next(iter(result.values()))
+            status, detail = next(iter(result.values()))
         except (StopIteration, TypeError, ValueError) as exc:
             raise ValueError("Resposta inválida do ClamAV.") from exc
 
         if status == "FOUND":
-            if not signature:
+            if not detail:
                 raise ValueError("ClamAV detectou uma ameaça sem informar a assinatura.")
 
-            return True, str(signature)
+            return True, str(detail)
 
         if status == "OK":
             return False, None
 
-        raise RuntimeError(f"ClamAV não concluiu a análise: {status}")
+        if status == "ERROR":
+            reason = str(detail).strip() if detail else "motivo não informado"
+            raise RuntimeError(f"ClamAV não concluiu a análise: {reason}")
+
+        raise RuntimeError(f"ClamAV retornou status desconhecido: {status}")
