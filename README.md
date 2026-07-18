@@ -1,5 +1,5 @@
 
-# ANTVIRUS PROJECT 
+# ANTVIRUS PROJECT
 
 1. Introdução
 O software antivírus multiplataforma foi projetado com o objetivo de fornecer proteção contra ameaças digitais, aliado a ferramentas de otimização de sistema. O sistema é voltado para usuários domésticos e técnicos que necessitam de controle detalhado sobre segurança, desempenho e análise do ambiente computacional.
