@@ -174,7 +174,10 @@ class MainView(QtWidgets.QMainWindow):
 
             # OUTRAS TELAS
 
-            self.cleaner_view = CleanerView(self.content_frame)
+            self.cleaner_view = CleanerView(
+                self.content_frame,
+                controller=self.cleaner_controller
+            )
             self.stack.addWidget(self.cleaner_view)
 
             self.disk_view = DiskUsageView()
