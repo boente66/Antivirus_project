@@ -15,6 +15,12 @@ class ScanThreatEntity:
         self.action = action
         self.detection_time = detection_time
 
+    @property
+    def file_name(self):
+        from pathlib import Path
+
+        return Path(self.file_path).name
+
     def to_tuple(self):
         return (
             self.scan_id,

@@ -1,290 +1,298 @@
-import os
-from PyQt5.QtCore import QObject, pyqtSignal
+from datetime import datetime
 
-from workers.scan_worker import ScanWorker
+from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
+from services.quarantine_service import QuarantineService
 from services.scan_service import ScanService
 from services.threat_action_service import ThreatActionService
-from services.quarantine_service import QuarantineService
+from workers.scan_worker import ScanWorker
 
 
 class ScanController(QObject):
-
-    # --------------------------------------------------
-    # SIGNALS
-    # --------------------------------------------------
+    HISTORY_BATCH_SIZE = 50
+    HISTORY_FLUSH_INTERVAL_MS = 150
 
     scan_started = pyqtSignal()
     scan_finished = pyqtSignal(list)
-
     progress_updated = pyqtSignal(int)
     current_file_changed = pyqtSignal(str)
-
     threat_detected = pyqtSignal(object)
     scan_error = pyqtSignal(str)
 
-    # --------------------------------------------------
-    # INIT
-    # --------------------------------------------------
-
     def __init__(self, parent=None, quarantine_service=None):
-
         super().__init__(parent)
-
         self.parent = parent
-
-        # ----------------------------------------
-        # SERVICES
-        # ----------------------------------------
-
         self.scan_service = ScanService()
         self.threat_action_service = ThreatActionService()
         self.quarantine_service = quarantine_service or QuarantineService()
-
-        # ----------------------------------------
-        # CONTROLE
-        # ----------------------------------------
-
         self.worker = None
         self.current_scan_id = None
-        self.scan_failed = False
-
-    # --------------------------------------------------
-    # START SCAN
-    # --------------------------------------------------
+        self.last_scan_status = None
+        self._history_flush_timer = QTimer(self)
+        self._history_flush_timer.setSingleShot(True)
+        self._history_flush_timer.timeout.connect(self._flush_history)
+        self._reset_execution_state()
 
     def start_smart_scan(self):
-
-        if self._is_running():
-            return
-
-        self._start_scan("SMART")
+        if not self._is_running():
+            self._start_scan("SMART")
 
     def start_custom_scan(self, path):
-
-        if self._is_running():
-            return
-
-        self._start_scan("CUSTOM", path)
-
-    # --------------------------------------------------
-    # CHECK RUNNING
-    # --------------------------------------------------
+        if not self._is_running():
+            self._start_scan("CUSTOM", path)
 
     def _is_running(self):
+        return bool(self.worker and self.worker.isRunning())
 
-        return self.worker and self.worker.isRunning()
-
-    # --------------------------------------------------
-    # START INTERNAL
-    # --------------------------------------------------
+    def _reset_execution_state(self):
+        self.scan_failed = False
+        self.scan_cancelled = False
+        self.audit_failed = False
+        self._scan_active = False
+        self._scan_finalized = False
+        self._engine_error = None
+        self._audit_errors = []
+        self._registered_threats = set()
+        self._pending_threats = []
+        self._treated_threats = 0
+        self._action_failures = 0
+        if hasattr(self, "_history_flush_timer"):
+            self._history_flush_timer.stop()
 
     def _start_scan(self, profile, path=None):
-
-        self.scan_failed = False
+        self._reset_execution_state()
+        self.current_scan_id = None
+        self.last_scan_status = None
 
         try:
-
             if not self.scan_service.connect_engine():
-
                 self.scan_error.emit("ClamAV não disponível")
                 return
-
-        except Exception as e:
-
-            self.scan_error.emit(str(e))
+        except Exception as exc:
+            self.scan_error.emit(f"Falha ao conectar ao ClamAV: {exc}")
             return
 
         try:
-
             self.current_scan_id = self.scan_service.start_scan(
                 profile=profile,
-                directory=path
+                directory=path,
             )
-
-        except Exception as e:
-
-            self.scan_error.emit(str(e))
+        except Exception as exc:
+            self.scan_error.emit(
+                "O scan não foi iniciado porque o histórico não pôde ser "
+                f"criado: {exc}"
+            )
             return
 
         self.worker = ScanWorker(
             service=self.scan_service,
             profile=profile,
-            custom_path=path
+            custom_path=path,
         )
-
         self._bind_worker_signals()
-
+        self._scan_active = True
         self.scan_started.emit()
-
         self.worker.start()
 
-    # --------------------------------------------------
-    # SIGNALS
-    # --------------------------------------------------
-
     def _bind_worker_signals(self):
-
         self.worker.progress.connect(self.progress_updated.emit)
         self.worker.file_changed.connect(self.current_file_changed.emit)
-
         self.worker.threat_found.connect(self._on_threat)
         self.worker.error.connect(self._on_error)
         self.worker.finished.connect(self._on_finished)
 
-    # --------------------------------------------------
-    # THREAT DETECTED
-    # --------------------------------------------------
-
     def _on_threat(self, result):
-
-        if not result or not result.infected:
+        if (
+            not self._scan_active
+            or self._scan_finalized
+            or not self.current_scan_id
+            or not result
+            or not getattr(result, "infected", False)
+        ):
             return
 
         file_path = result.detected_file.path
         virus_name = result.virus.name
+        event_key = (str(file_path), str(virus_name))
 
-        # ----------------------------------------
-        # DECISÃO
-        # ----------------------------------------
+        if event_key in self._registered_threats:
+            return
+        self._registered_threats.add(event_key)
 
-        action = self.threat_action_service.decide(
+        decided_action = self.threat_action_service.decide(
             file_path=file_path,
-            virus_name=virus_name
+            virus_name=virus_name,
+        )
+        result.action = self._execute_threat_action(
+            decided_action,
+            file_path,
+            virus_name,
         )
 
-        result.action = action
-
-        # ----------------------------------------
-        # EXECUTAR AÇÃO
-        # ----------------------------------------
-
-        if action == ThreatActionService.ACTION_QUARANTINE:
-
-            try:
-
-                self.quarantine_service.quarantine_from_scan(
-                    file_path,
-                    virus_name
-                )
-
-            except Exception as exc:
-                result.action = "quarantine_failed"
-                self.scan_error.emit(
-                    f"Falha ao colocar '{file_path}' em quarentena: {exc}"
-                )
-
-        # ----------------------------------------
-        # HISTÓRICO
-        # ----------------------------------------
-
-        try:
-
-            self.scan_service.register_threat(
-                scan_id=self.current_scan_id,
-                detected_file=result.detected_file,
-                virus=result.virus,
-                action=result.action
+        self._pending_threats.append(
+            (
+                result.detected_file,
+                result.virus,
+                result.action,
+                result.virus.detection_date or datetime.now(),
             )
-
-        except Exception as exc:
-            self.scan_error.emit(
-                f"Falha ao registrar ameaça '{virus_name}' para "
-                f"'{file_path}': {exc}"
-            )
+        )
+        if len(self._pending_threats) >= self.HISTORY_BATCH_SIZE:
+            self._flush_history()
+        else:
+            self._history_flush_timer.start(self.HISTORY_FLUSH_INTERVAL_MS)
 
         self.threat_detected.emit(result)
 
-    # --------------------------------------------------
-    # ERROR
-    # --------------------------------------------------
+    def _flush_history(self, final=False):
+        if not self._pending_threats or not self.current_scan_id:
+            return True
+
+        pending = self._pending_threats
+        self._pending_threats = []
+        self._history_flush_timer.stop()
+
+        try:
+            self.scan_service.register_threats(
+                scan_id=self.current_scan_id,
+                threats=pending,
+            )
+            return True
+        except Exception as exc:
+            self._pending_threats = pending + self._pending_threats
+            message = (
+                "Falha de auditoria ao registrar lote de ameaças: "
+                f"scan_id={self.current_scan_id}, itens={len(pending)}, "
+                f"causa={exc}"
+            )
+            self.scan_error.emit(message)
+            if final:
+                self.audit_failed = True
+                self._audit_errors.append(message)
+            else:
+                self._history_flush_timer.start(
+                    self.HISTORY_FLUSH_INTERVAL_MS * 3
+                )
+            return False
+
+    def _execute_threat_action(self, action, file_path, virus_name):
+        if action == ThreatActionService.ACTION_QUARANTINE:
+            try:
+                self.quarantine_service.quarantine_from_scan(
+                    file_path,
+                    virus_name,
+                )
+                self._treated_threats += 1
+                return "quarantine"
+            except Exception as exc:
+                self._action_failures += 1
+                self.scan_error.emit(
+                    f"Falha ao colocar '{file_path}' em quarentena: {exc}"
+                )
+                return "failed"
+
+        if action == ThreatActionService.ACTION_IGNORE:
+            return "ignored"
+
+        if action == ThreatActionService.ACTION_SUGGEST_QUARANTINE:
+            return "alert"
+
+        return "alert"
 
     def _on_error(self, message):
-
         self.scan_failed = True
-
-        try:
-
-            self.scan_service.mark_scan_failed(
-                scan_id=self.current_scan_id,
-                reason=message
-            )
-
-        except Exception as exc:
-            message = (
-                f"{message}; falha ao registrar o estado do scan: {exc}"
-            )
-
-        self.scan_error.emit(message)
-
-    # --------------------------------------------------
-    # FINISH
-    # --------------------------------------------------
+        self._engine_error = str(message or "Erro desconhecido no motor de scan.")
+        self.scan_error.emit(self._engine_error)
 
     def _on_finished(self, results):
-
-        infected = len([r for r in results if r.infected])
-        total_files = infected
-
-        if self.worker is not None:
-            total_files = max(
-                getattr(self.worker, "scanned_files", 0),
-                infected
-            )
-
-        if not self.scan_failed:
-
-            try:
-
-                self.scan_service.finish_scan(
-                    scan_id=self.current_scan_id,
-                    total_files=total_files,
-                    infected_files=infected
-                )
-
-            except Exception as exc:
-                self.scan_error.emit(
-                    f"Falha ao finalizar o registro do scan: {exc}"
-                )
-
-        self.scan_finished.emit(results)
-
-    # --------------------------------------------------
-    # CANCEL
-    # --------------------------------------------------
-
-    def interrupt_scan(self):
-
-        if not self.worker:
+        if self._scan_finalized or not self.current_scan_id:
             return
 
-        self.scan_failed = True
+        self._scan_finalized = True
+        self._scan_active = False
+        results = list(results or [])
+        infected_paths = {
+            getattr(getattr(result, "detected_file", None), "path", None)
+            for result in results
+            if getattr(result, "infected", False)
+        }
+        infected_paths.discard(None)
+        infected = len(infected_paths)
+        scanned_files = 0
+        failed_files = self._action_failures
+
+        if self.worker is not None:
+            scanned_files = max(0, getattr(self.worker, "scanned_files", 0))
+            failed_files += max(0, getattr(self.worker, "failed_files", 0))
+
+        total_files = max(scanned_files, infected)
+        self._flush_history(final=True)
+        status, error = self._final_status(failed_files)
 
         try:
-
-            self.worker.stop()
-
-        except Exception as exc:
-            self.scan_error.emit(
-                f"Falha ao interromper o worker de scan: {exc}"
-            )
-
-        try:
-
-            self.scan_service.mark_scan_failed(
+            self.scan_service.finish_scan(
                 scan_id=self.current_scan_id,
-                reason="SCAN_CANCELLED_BY_USER"
+                total_files=total_files,
+                infected_files=infected,
+                treated_threats=self._treated_threats,
+                failed_files=failed_files,
+                status=status,
+                error=error,
             )
-
         except Exception as exc:
+            status = "audit_failed"
             self.scan_error.emit(
-                f"Falha ao registrar o cancelamento do scan: {exc}"
+                "Falha ao finalizar o histórico: "
+                f"scan_id={self.current_scan_id}, causa={exc}. "
+                "O resultado do scan foi preservado em memória, mas a "
+                "auditoria final pode estar incompleta."
             )
 
-    # --------------------------------------------------
-    # HISTORY
-    # --------------------------------------------------
+        self.last_scan_status = status
+        self.current_scan_id = None
+        self._pending_threats = []
+        self.scan_finished.emit(results)
 
-    def get_scan_history(self, limit=100):
+    def _final_status(self, failed_files):
+        if self.scan_cancelled:
+            return "cancelled", "Scan cancelado pelo usuário."
+        if self.scan_failed:
+            return "failed", self._engine_error
+        if self.audit_failed:
+            return "audit_failed", "; ".join(self._audit_errors)
+        if failed_files:
+            return (
+                "completed_with_failures",
+                f"Scan concluído com {failed_files} falha(s) parcial(is).",
+            )
+        return "completed", None
 
-        return self.scan_service.get_scan_history(limit)
+    def interrupt_scan(self):
+        if not self._is_running() or not self._scan_active:
+            return
+
+        self.scan_cancelled = True
+        try:
+            self.worker.stop()
+        except Exception as exc:
+            self.scan_cancelled = False
+            self.scan_failed = True
+            self._engine_error = f"Falha ao interromper o worker: {exc}"
+            self.scan_error.emit(self._engine_error)
+
+    def get_scan_history(self, filters=None, limit=50, offset=0):
+        return self.scan_service.get_scan_history(
+            filters=filters,
+            limit=limit,
+            offset=offset,
+        )
+
+    def get_scan_by_id(self, scan_id):
+        return self.scan_service.get_scan_by_id(scan_id)
+
+    def get_scan_threats(self, scan_id, limit=None, offset=0):
+        return self.scan_service.get_scan_threats(
+            scan_id,
+            limit=limit,
+            offset=offset,
+        )

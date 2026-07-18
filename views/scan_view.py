@@ -219,8 +219,8 @@ class ScanView(QtWidgets.QWidget):
 
             self.log(f"⚠ Ameaça detectada: {virus_name}")
 
-        except Exception:
-            pass
+        except Exception as exc:
+            self.log(f"Falha ao exibir ameaça detectada: {exc}")
 
     def on_scan_error(self, message: str):
 
@@ -247,23 +247,33 @@ class ScanView(QtWidgets.QWidget):
         except Exception:
             infected = 0
 
-        self.title_label.setText("Verificação concluída")
+        status = getattr(self.scan_controller, "last_scan_status", None)
+        titles = {
+            "completed": "Verificação concluída",
+            "completed_with_failures": "Verificação concluída com falhas",
+            "cancelled": "Verificação cancelada",
+            "failed": "Verificação falhou",
+            "audit_failed": "Verificação com falha de auditoria",
+        }
+        self.title_label.setText(titles.get(status, "Verificação finalizada"))
 
         self.current_file_label.setText("Arquivo atual: —")
 
-        self.progress_bar.setValue(100)
-        self.percent_label.setText("100%")
+        if status in ("completed", "completed_with_failures"):
+            self.progress_bar.setValue(100)
+            self.percent_label.setText("100%")
 
         self.cancel_button.setEnabled(False)
 
-        self.log("Verificação finalizada.")
+        self.log(f"Verificação finalizada com status: {status or 'unknown'}.")
         self.log(f"Ameaças detectadas: {infected}")
 
-        QtWidgets.QMessageBox.information(
-            self,
-            "Scan concluído",
-            f"Verificação finalizada.\nAmeaças encontradas: {infected}"
-        )
+        if status in ("completed", "completed_with_failures"):
+            QtWidgets.QMessageBox.information(
+                self,
+                "Scan finalizado",
+                f"Verificação finalizada.\nAmeaças encontradas: {infected}",
+            )
 
     # =====================================================
     # UTIL
@@ -302,8 +312,8 @@ class ScanView(QtWidgets.QWidget):
 
         try:
             self.scan_controller.interrupt_scan()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.log(f"Falha ao solicitar cancelamento: {exc}")
 
     # =====================================================
     # CLEANUP
@@ -311,18 +321,19 @@ class ScanView(QtWidgets.QWidget):
 
     def closeEvent(self, event):
 
-        try:
-
-            c = self.scan_controller
-
-            c.scan_started.disconnect(self.on_scan_started)
-            c.progress_updated.disconnect(self.on_progress)
-            c.current_file_changed.disconnect(self.on_current_file)
-            c.threat_detected.disconnect(self.on_threat_detected)
-            c.scan_error.disconnect(self.on_scan_error)
-            c.scan_finished.disconnect(self.on_scan_finished)
-
-        except Exception:
-            pass
+        c = self.scan_controller
+        connections = (
+            (c.scan_started, self.on_scan_started),
+            (c.progress_updated, self.on_progress),
+            (c.current_file_changed, self.on_current_file),
+            (c.threat_detected, self.on_threat_detected),
+            (c.scan_error, self.on_scan_error),
+            (c.scan_finished, self.on_scan_finished),
+        )
+        for signal, slot in connections:
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                continue
 
         event.accept()
