@@ -149,10 +149,8 @@ class StatusView(QtWidgets.QWidget):
 
             self.engine_label.setText("")
 
-            self.status_icon.setPixmap(
-                get_icon("loading").pixmap(48, 48)
-                if get_icon("loading") else QtCore.QSize()
-            )
+            loading_icon = get_icon("loading")
+            self.status_icon.setPixmap(loading_icon.pixmap(48, 48))
 
             self.controller.load_status()
 

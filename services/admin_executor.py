@@ -1,9 +1,14 @@
-# services/admin_executor.py
-
 import sys
 import json
 import os
 from pathlib import Path
+
+# O pkexec pode iniciar o processo fora da pasta do projeto. Ao executar este
+# arquivo diretamente, o Python inclui apenas ``services`` no sys.path; registre
+# a raiz antes dos imports internos para manter o mesmo contrato da aplicação.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.platform.platform_factory import PlatformFactory
 from services.cleaner_service import CleanerService

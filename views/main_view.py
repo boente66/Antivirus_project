@@ -21,11 +21,17 @@ from utils.icon_loader import get_icon
 
 class MainView(QtWidgets.QMainWindow):
 
+    DEFAULT_SIZE = QtCore.QSize(800, 600)
+    COMPACT_MINIMUM_SIZE = QtCore.QSize(700, 500)
+
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Antivírus")
-        self.setFixedSize(800, 600)
+        self.setMinimumSize(self.COMPACT_MINIMUM_SIZE)
+        self.resize(self.DEFAULT_SIZE)
+        self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, True)
+        self.setWindowFlag(QtCore.Qt.WindowMaximizeButtonHint, True)
 
         # --------------------------------------------------
         # Controllers

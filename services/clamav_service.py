@@ -1,6 +1,8 @@
 from PyQt5.QtCore import QObject
 import os
 import platform
+import re
+import shutil
 import subprocess
 import time
 
@@ -8,6 +10,12 @@ from clamav.clamav_client import ClamAVClient
 
 
 class ClamAVService(QObject):
+
+    LOCAL_CONFIG_PATHS = (
+        "/etc/clamav/clamd.conf",
+        "/usr/local/etc/clamav/clamd.conf",
+    )
+    LARGE_FILE_SCAN_TIMEOUT = 300
 
     # ======================================================
     # INIT
@@ -173,7 +181,99 @@ class ClamAVService(QObject):
                 "ClamAV não conectado"
             )
 
+        max_file_size = self._local_max_file_size()
+        if (
+            self.client.uses_local_socket()
+            and max_file_size is not None
+            and os.path.getsize(file_path) > max_file_size
+        ):
+            return self._scan_large_local_file(file_path)
+
         return self.client.scan_file(file_path)
+
+    def _local_max_file_size(self):
+        if not self.client.uses_local_socket():
+            return None
+
+        for config_path in self.LOCAL_CONFIG_PATHS:
+            try:
+                with open(config_path, encoding="utf-8") as config_file:
+                    for raw_line in config_file:
+                        line = raw_line.split("#", 1)[0].strip()
+                        match = re.fullmatch(
+                            r"MaxFileSize\s+(\d+)\s*([KMG]?)",
+                            line,
+                            flags=re.IGNORECASE,
+                        )
+                        if match:
+                            value = int(match.group(1))
+                            unit = match.group(2).upper()
+                            multiplier = {
+                                "": 1,
+                                "K": 1024,
+                                "M": 1024 ** 2,
+                                "G": 1024 ** 3,
+                            }[unit]
+                            return value * multiplier
+            except OSError:
+                continue
+
+        return None
+
+    def _scan_large_local_file(self, file_path):
+        executable = shutil.which("clamscan")
+        if not executable:
+            raise RuntimeError(
+                "O arquivo excede MaxFileSize do daemon e o clamscan "
+                "não está disponível para a análise completa."
+            )
+
+        file_size = os.path.getsize(file_path)
+        file_limit = file_size + (1024 ** 2)
+        scan_limit = max(file_limit * 2, 100 * (1024 ** 2))
+        command = [
+            executable,
+            "--infected",
+            "--no-summary",
+            f"--max-filesize={file_limit}",
+            f"--max-scansize={scan_limit}",
+            "--",
+            file_path,
+        ]
+
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=self.LARGE_FILE_SCAN_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "A análise completa do arquivo grande excedeu o tempo limite."
+            ) from exc
+
+        if completed.returncode == 0:
+            return None
+
+        if completed.returncode == 1:
+            for line in completed.stdout.splitlines():
+                if not line.endswith(" FOUND") or ": " not in line:
+                    continue
+                scanned_path, detection = line.rsplit(": ", 1)
+                signature = detection[: -len(" FOUND")].strip()
+                if signature:
+                    return {scanned_path: ("FOUND", signature)}
+
+            raise RuntimeError(
+                "ClamAV informou uma detecção sem identificar a assinatura."
+            )
+
+        details = (completed.stderr or completed.stdout).strip()
+        raise RuntimeError(
+            "Falha na análise completa do arquivo grande"
+            + (f": {details}" if details else ".")
+        )
 
     # ======================================================
     # DETECÇÃO

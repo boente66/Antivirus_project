@@ -12,7 +12,7 @@ class UninstallerWorker(QThread):
         super().__init__()
 
         self.service = service
-        self.program_name = program_name
+        self.program_name = program_name 
         self.password = password
 
         self._running = True

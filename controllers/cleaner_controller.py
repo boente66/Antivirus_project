@@ -269,11 +269,17 @@ class CleanerController(QObject):
         self._complete_clean(self._merge_results(self._normal_result, admin_result))
 
     def _execute_admin(self, tasks):
+        project_root = Path(__file__).resolve().parents[1]
+        executor = project_root / "services" / "admin_executor.py"
+        if not executor.is_file():
+            raise FileNotFoundError(
+                f"executor administrativo não encontrado: {executor}"
+            )
+
         command = [
             "pkexec",
             sys.executable,
-            "-m",
-            "services.admin_executor",
+            str(executor),
         ]
         try:
             completed = self.subprocess_runner(
