@@ -11,10 +11,11 @@ class SecuritySettingsView(QtWidgets.QWidget):
     # INIT
     # =====================================================
 
-    def __init__(self):
+    def __init__(self, scan_controller=None):
         super().__init__()
 
         self.controller = SecurityController(self)
+        self.scan_controller = scan_controller
         self.selected_directory = None
 
         self.init_ui()
@@ -85,7 +86,42 @@ class SecuritySettingsView(QtWidgets.QWidget):
         layout.addWidget(self.tabs)
 
         self.create_clamav_tab()
+        self.create_scan_tab()
         self.create_ransomware_tab()
+
+    def create_scan_tab(self):
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        self.browser_warning_checkbox = QtWidgets.QCheckBox(
+            "Avisar quando houver navegadores abertos antes do "
+            "escaneamento completo."
+        )
+        self.browser_warning_checkbox.setToolTip(
+            "Também controla o aviso antes de escaneamentos personalizados."
+        )
+
+        if self.scan_controller is None:
+            self.browser_warning_checkbox.setEnabled(False)
+        else:
+            self.browser_warning_checkbox.setChecked(
+                self.scan_controller.browser_warning_enabled()
+            )
+            self.browser_warning_checkbox.toggled.connect(
+                self.scan_controller.set_browser_warning_enabled
+            )
+            self.scan_controller.browser_warning_preference_changed.connect(
+                self._update_browser_warning_checkbox
+            )
+
+        layout.addWidget(self.browser_warning_checkbox)
+        layout.addStretch()
+        self.tabs.addTab(tab, get_icon("scan"), "Escaneamento")
+
+    def _update_browser_warning_checkbox(self, enabled):
+        self.browser_warning_checkbox.blockSignals(True)
+        self.browser_warning_checkbox.setChecked(bool(enabled))
+        self.browser_warning_checkbox.blockSignals(False)
 
     # =====================================================
     # CLAMAV TAB

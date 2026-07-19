@@ -3,6 +3,8 @@ from datetime import datetime
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 from services.quarantine_service import QuarantineService
+from services.process_detection_service import BrowserProcessDetector
+from services.scan_preferences_service import ScanPreferencesService
 from services.scan_service import ScanService
 from services.threat_action_service import ThreatActionService
 from workers.scan_worker import ScanWorker
@@ -18,14 +20,31 @@ class ScanController(QObject):
     current_file_changed = pyqtSignal(str)
     threat_detected = pyqtSignal(object)
     scan_error = pyqtSignal(str)
+    browser_warning_requested = pyqtSignal(object)
+    browser_warning_preference_changed = pyqtSignal(bool)
 
-    def __init__(self, parent=None, quarantine_service=None):
+    def __init__(
+        self,
+        parent=None,
+        quarantine_service=None,
+        *,
+        scan_service=None,
+        process_detector=None,
+        preferences_service=None,
+    ):
         super().__init__(parent)
         self.parent = parent
-        self.scan_service = ScanService()
+        self.scan_service = scan_service or ScanService()
         self.threat_action_service = ThreatActionService()
         self.quarantine_service = quarantine_service or QuarantineService()
+        self.process_detector = process_detector or BrowserProcessDetector(
+            adapter=self.scan_service.platform,
+        )
+        self.preferences_service = (
+            preferences_service or ScanPreferencesService()
+        )
         self.worker = None
+        self._pending_scan_request = None
         self.current_scan_id = None
         self.last_scan_status = None
         self._history_flush_timer = QTimer(self)
@@ -34,12 +53,44 @@ class ScanController(QObject):
         self._reset_execution_state()
 
     def start_smart_scan(self):
-        if not self._is_running():
-            self._start_scan("SMART")
+        return self._request_scan("SMART")
 
     def start_custom_scan(self, path):
-        if not self._is_running():
-            self._start_scan("CUSTOM", path)
+        return self._request_scan("CUSTOM", path)
+
+    def _request_scan(self, profile, path=None):
+        if self._is_running() or self._pending_scan_request is not None:
+            return False
+
+        if self.preferences_service.should_warn_for_scan(profile):
+            browsers = self.process_detector.get_running_browsers()
+            if browsers:
+                self._pending_scan_request = (profile, path)
+                self.browser_warning_requested.emit(browsers)
+                return False
+
+        return self._start_scan(profile, path)
+
+    def resolve_browser_warning(self, continue_scan, dont_show_again=False):
+        pending = self._pending_scan_request
+        self._pending_scan_request = None
+
+        if dont_show_again:
+            self.set_browser_warning_enabled(False)
+
+        if not pending or not continue_scan:
+            return False
+
+        profile, path = pending
+        return self._start_scan(profile, path)
+
+    def browser_warning_enabled(self):
+        return self.preferences_service.browser_warning_enabled()
+
+    def set_browser_warning_enabled(self, enabled):
+        enabled = bool(enabled)
+        self.preferences_service.set_browser_warning_enabled(enabled)
+        self.browser_warning_preference_changed.emit(enabled)
 
     def _is_running(self):
         return bool(self.worker and self.worker.isRunning())
@@ -67,10 +118,10 @@ class ScanController(QObject):
         try:
             if not self.scan_service.connect_engine():
                 self.scan_error.emit("ClamAV não disponível")
-                return
+                return False
         except Exception as exc:
             self.scan_error.emit(f"Falha ao conectar ao ClamAV: {exc}")
-            return
+            return False
 
         try:
             self.current_scan_id = self.scan_service.start_scan(
@@ -82,7 +133,7 @@ class ScanController(QObject):
                 "O scan não foi iniciado porque o histórico não pôde ser "
                 f"criado: {exc}"
             )
-            return
+            return False
 
         self.worker = ScanWorker(
             service=self.scan_service,
@@ -93,6 +144,7 @@ class ScanController(QObject):
         self._scan_active = True
         self.scan_started.emit()
         self.worker.start()
+        return True
 
     def _bind_worker_signals(self):
         self.worker.progress.connect(self.progress_updated.emit)

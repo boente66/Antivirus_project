@@ -66,7 +66,6 @@ class CustomScanView(QWidget):
         """
         try:
             self.scan_controller.start_smart_scan()
-            self._close_self()
         except Exception as e:
             QMessageBox.critical(self, "Erro", str(e))
 
@@ -86,7 +85,6 @@ class CustomScanView(QWidget):
 
         try:
             self.scan_controller.start_custom_scan(base_path)
-            self._close_self()
         except Exception as e:
             QMessageBox.critical(self, "Erro", str(e))
 
@@ -101,12 +99,6 @@ class CustomScanView(QWidget):
             user = os.getenv("USERNAME")
             return f"C:\\Users\\{user}"
         return "/"
-
-    def _close_self(self):
-        """Exibe a tela de progresso sem destruir a página de opções."""
-
-        if self.parent_view and hasattr(self.parent_view, "show_scan_view"):
-            self.parent_view.show_scan_view()
 
     def _btn_style(self, color, hover):
         return f"""

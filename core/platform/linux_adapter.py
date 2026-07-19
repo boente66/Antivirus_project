@@ -1,11 +1,16 @@
 import os
+import logging
 import subprocess
 from pathlib import Path
+
+import psutil
 
 from .platform_adapter import PlatformAdapter
 
 
 class LinuxAdapter(PlatformAdapter):
+
+    _logger = logging.getLogger(__name__)
 
     # --------------------------------------------------
     # Sistema operacional
@@ -190,34 +195,27 @@ class LinuxAdapter(PlatformAdapter):
     # --------------------------------------------------
 
     def get_running_processes(self):
-
         processes = []
-
         try:
-
-            result = subprocess.run(
-                ["ps", "-eo", "pid,comm"],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-
-            lines = result.stdout.splitlines()[1:]
-
-            for line in lines:
-
-                parts = line.split(None, 1)
-
-                if len(parts) == 2:
-
+            for process in psutil.process_iter(attrs=["pid", "name"]):
+                try:
+                    info = process.info
+                    name = str(info.get("name") or "").strip()
+                    pid = int(info.get("pid"))
+                    if not name:
+                        continue
                     processes.append({
-                        "pid": int(parts[0]),
-                        "name": parts[1]
+                        "pid": pid,
+                        "name": name,
                     })
-
-        except Exception:
-            pass
-
+                except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess) as exc:
+                    self._logger.debug("Processo indisponível durante enumeração: %s", exc)
+                except (AttributeError, TypeError, ValueError) as exc:
+                    self._logger.debug("Dados de processo inválidos: %s", exc)
+        except (psutil.AccessDenied, psutil.NoSuchProcess) as exc:
+            self._logger.warning("Enumeração de processos indisponível: %s", exc)
+        except Exception as exc:
+            self._logger.warning("Falha inesperada ao enumerar processos: %s", exc)
         return processes
 
     # --------------------------------------------------

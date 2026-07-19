@@ -14,6 +14,7 @@ from views.cleaner_view import CleanerView
 from views.uninstaller_view import UninstallerView
 from views.disk_usage_view import DiskUsageView
 from views.quarantine_view import QuarantineView
+from views.browser_process_dialog import BrowserProcessWarningDialog
 
 from utils.icon_loader import get_icon
 
@@ -36,6 +37,9 @@ class MainView(QtWidgets.QMainWindow):
             quarantine_service=self.quarantine_controller.service
         )
         self.cleaner_controller = CleanerController()
+        self.scan_controller.browser_warning_requested.connect(
+            self._show_browser_process_warning
+        )
 
         # --------------------------------------------------
         # Layout principal
@@ -186,7 +190,7 @@ class MainView(QtWidgets.QMainWindow):
             self.uninstall_view = UninstallerView(self.content_frame)
             self.stack.addWidget(self.uninstall_view)
 
-            self.settings_view = SecuritySettingsView()
+            self.settings_view = SecuritySettingsView(self.scan_controller)
             self.stack.addWidget(self.settings_view)
 
             self.historic_view = HistoricView(self.scan_controller)
@@ -336,3 +340,11 @@ class MainView(QtWidgets.QMainWindow):
     def show_settings(self):
         self.header_label.setText("Configurações")
         self.stack.setCurrentWidget(self.settings_view)
+
+    def _show_browser_process_warning(self, browsers):
+        dialog = BrowserProcessWarningDialog(browsers, self)
+        accepted = dialog.exec_() == QtWidgets.QDialog.Accepted
+        self.scan_controller.resolve_browser_warning(
+            continue_scan=accepted,
+            dont_show_again=dialog.dont_show_again(),
+        )
