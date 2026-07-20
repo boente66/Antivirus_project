@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
 from controllers.security_controller import SecurityController
 from utils.icon_loader import get_icon
+from views.components import CardFrame
 
 
 class SecuritySettingsView(QtWidgets.QWidget):
@@ -78,7 +79,7 @@ class SecuritySettingsView(QtWidgets.QWidget):
         self.setWindowTitle("Configurações de Segurança")
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(10)
 
         self.tabs = QtWidgets.QTabWidget()
@@ -92,6 +93,19 @@ class SecuritySettingsView(QtWidgets.QWidget):
     def create_scan_tab(self):
         tab = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(tab)
+        layout.setContentsMargins(12, 16, 12, 12)
+        card = CardFrame()
+        card_layout = QtWidgets.QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 18)
+        title = QtWidgets.QLabel("Avisos antes do escaneamento")
+        title.setObjectName("SectionTitle")
+        description = QtWidgets.QLabel(
+            "Defina quando o aplicativo deve alertar sobre programas abertos."
+        )
+        description.setProperty("muted", True)
+        description.setWordWrap(True)
+        card_layout.addWidget(title)
+        card_layout.addWidget(description)
 
         self.browser_warning_checkbox = QtWidgets.QCheckBox(
             "Avisar quando houver navegadores abertos antes do "
@@ -114,7 +128,8 @@ class SecuritySettingsView(QtWidgets.QWidget):
                 self._update_browser_warning_checkbox
             )
 
-        layout.addWidget(self.browser_warning_checkbox)
+        card_layout.addWidget(self.browser_warning_checkbox)
+        layout.addWidget(card)
         layout.addStretch()
         self.tabs.addTab(tab, get_icon("scan"), "Escaneamento")
 
@@ -133,6 +148,20 @@ class SecuritySettingsView(QtWidgets.QWidget):
 
         vbox = QtWidgets.QVBoxLayout(tab)
         vbox.setSpacing(10)
+        vbox.setContentsMargins(12, 16, 12, 12)
+
+        connection_card = CardFrame()
+        connection_layout = QtWidgets.QVBoxLayout(connection_card)
+        connection_layout.setContentsMargins(18, 16, 18, 18)
+        connection_title = QtWidgets.QLabel("Conexão ClamAV")
+        connection_title.setObjectName("SectionTitle")
+        connection_description = QtWidgets.QLabel(
+            "Configure a conexão com o mecanismo responsável pela detecção de ameaças."
+        )
+        connection_description.setProperty("muted", True)
+        connection_description.setWordWrap(True)
+        connection_layout.addWidget(connection_title)
+        connection_layout.addWidget(connection_description)
 
         # -------------------------
         # Tipo conexão
@@ -143,8 +172,8 @@ class SecuritySettingsView(QtWidgets.QWidget):
         self.connection_combo = QtWidgets.QComboBox()
         self.connection_combo.addItems(["Local", "Servidor"])
 
-        vbox.addWidget(connection_label)
-        vbox.addWidget(self.connection_combo)
+        connection_layout.addWidget(connection_label)
+        connection_layout.addWidget(self.connection_combo)
 
         # -------------------------
         # Server frame
@@ -163,7 +192,7 @@ class SecuritySettingsView(QtWidgets.QWidget):
         s_layout.addWidget(self.server_address)
         s_layout.addWidget(self.server_port)
 
-        vbox.addWidget(self.server_frame)
+        connection_layout.addWidget(self.server_frame)
 
         self.server_frame.hide()
 
@@ -178,24 +207,27 @@ class SecuritySettingsView(QtWidgets.QWidget):
         btn_layout = QtWidgets.QHBoxLayout()
 
         self.connect_btn = QtWidgets.QPushButton("Conectar")
+        self.connect_btn.setProperty("role", "primary")
         self.connect_btn.setIcon(get_icon("shield"))
         self.connect_btn.clicked.connect(self.on_connect)
 
         self.disconnect_btn = QtWidgets.QPushButton("Desconectar")
+        self.disconnect_btn.setProperty("role", "secondary")
         self.disconnect_btn.setIcon(get_icon("shield_off"))
         self.disconnect_btn.clicked.connect(self.on_disconnect)
 
         btn_layout.addWidget(self.connect_btn)
         btn_layout.addWidget(self.disconnect_btn)
 
-        vbox.addLayout(btn_layout)
+        connection_layout.addLayout(btn_layout)
 
         # -------------------------
         # STATUS
         # -------------------------
 
         self.status_label = QtWidgets.QLabel("Status: desconhecido")
-        vbox.addWidget(self.status_label)
+        connection_layout.addWidget(self.status_label)
+        vbox.addWidget(connection_card)
 
         vbox.addStretch()
 
@@ -266,6 +298,19 @@ class SecuritySettingsView(QtWidgets.QWidget):
 
         vbox = QtWidgets.QVBoxLayout(tab)
         vbox.setSpacing(10)
+        vbox.setContentsMargins(12, 16, 12, 12)
+        card = CardFrame()
+        card_layout = QtWidgets.QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 18)
+        title = QtWidgets.QLabel("Proteção contra ransomware")
+        title.setObjectName("SectionTitle")
+        description = QtWidgets.QLabel(
+            "Selecione um diretório para controlar a proteção já disponível no aplicativo."
+        )
+        description.setProperty("muted", True)
+        description.setWordWrap(True)
+        card_layout.addWidget(title)
+        card_layout.addWidget(description)
 
         # -------------------------
         # DIRETÓRIO
@@ -275,7 +320,7 @@ class SecuritySettingsView(QtWidgets.QWidget):
             "Nenhum diretório selecionado."
         )
 
-        vbox.addWidget(self.directory_label)
+        card_layout.addWidget(self.directory_label)
 
         # -------------------------
         # BOTÃO SELECIONAR PASTA
@@ -307,8 +352,11 @@ class SecuritySettingsView(QtWidgets.QWidget):
             self.on_toggle_ransomware
         )
 
-        vbox.addWidget(select_path_btn)
-        vbox.addWidget(self.toggle_protection_button)
+        select_path_btn.setProperty("role", "secondary")
+        self.toggle_protection_button.setProperty("role", "primary")
+        card_layout.addWidget(select_path_btn)
+        card_layout.addWidget(self.toggle_protection_button)
+        vbox.addWidget(card)
 
         vbox.addStretch()
 

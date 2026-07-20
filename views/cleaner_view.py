@@ -1,4 +1,4 @@
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import (
 )
 
 from controllers.cleaner_controller import CleanerController
+from utils.icon_loader import get_icon
+from views.components import CardFrame, MetricCard
 
 
 class CleanerView(QtWidgets.QWidget):
@@ -32,13 +34,41 @@ class CleanerView(QtWidgets.QWidget):
             QMessageBox.warning(self, "Limpeza indisponível", self.controller.support_message)
 
     def _build_ui(self):
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 4, 0, 0)
+        main_layout.setSpacing(12)
 
-        left = QVBoxLayout()
-        title = QLabel("Limpeza de Sistema")
-        title.setStyleSheet("font-size:20px;font-weight:bold;")
+        metrics = QHBoxLayout()
+        metrics.setSpacing(10)
+        self.recoverable_metric = MetricCard(
+            "Espaço recuperável", "—", "Execute uma análise", "cleaner", "green"
+        )
+        self.items_metric = MetricCard(
+            "Itens encontrados", "0", "Nenhum resultado", "list", "blue"
+        )
+        self.clean_status_metric = MetricCard(
+            "Estado", "Pronto", "Aguardando seleção", "status", "purple"
+        )
+        metrics.addWidget(self.recoverable_metric)
+        metrics.addWidget(self.items_metric)
+        metrics.addWidget(self.clean_status_metric)
+        main_layout.addLayout(metrics)
+
+        self.content_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.content_splitter.setChildrenCollapsible(False)
+
+        options_card = CardFrame()
+        left = QVBoxLayout(options_card)
+        left.setContentsMargins(14, 12, 14, 14)
+        title = QLabel("Categorias de limpeza")
+        title.setObjectName("SectionTitle")
+        subtitle = QLabel(
+            "Selecione o que deseja analisar. Nada é removido nesta etapa."
+        )
+        subtitle.setProperty("muted", True)
+        subtitle.setWordWrap(True)
         left.addWidget(title)
+        left.addWidget(subtitle)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -47,7 +77,7 @@ class CleanerView(QtWidgets.QWidget):
         self.checks = {}
         for section, items in self._get_options().items():
             label = QLabel(section)
-            label.setStyleSheet("font-weight:bold;margin-top:10px;")
+            label.setStyleSheet("font-weight:700;margin-top:8px;")
             self.options_layout.addWidget(label)
             for text in items:
                 checkbox = QCheckBox(text)
@@ -61,6 +91,12 @@ class CleanerView(QtWidgets.QWidget):
         self.analyze_btn = QPushButton("Analisar")
         self.clean_btn = QPushButton("Executar limpeza")
         self.stop_btn = QPushButton("Cancelar")
+        self.analyze_btn.setProperty("role", "secondary")
+        self.clean_btn.setProperty("role", "primary")
+        self.stop_btn.setProperty("role", "danger")
+        self.analyze_btn.setIcon(get_icon("scan"))
+        self.clean_btn.setIcon(get_icon("cleaner"))
+        self.stop_btn.setIcon(get_icon("stop"))
         self.clean_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         self.analyze_btn.clicked.connect(self.analyze)
@@ -69,10 +105,14 @@ class CleanerView(QtWidgets.QWidget):
         left.addWidget(self.analyze_btn)
         left.addWidget(self.clean_btn)
         left.addWidget(self.stop_btn)
-        main_layout.addLayout(left, 1)
+        self.content_splitter.addWidget(options_card)
 
-        right = QVBoxLayout()
-        right.addWidget(QLabel("Itens analisados"))
+        results_card = CardFrame()
+        right = QVBoxLayout(results_card)
+        right.setContentsMargins(14, 12, 14, 14)
+        results_title = QLabel("Itens analisados")
+        results_title.setObjectName("SectionTitle")
+        right.addWidget(results_title)
         self.items_table = QTableWidget(0, 6)
         self.items_table.setHorizontalHeaderLabels([
             "Categoria", "Caminho", "Tamanho", "Privilégio", "Modo", "Tipo"
@@ -81,7 +121,9 @@ class CleanerView(QtWidgets.QWidget):
         self.items_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         right.addWidget(self.items_table)
 
-        right.addWidget(QLabel("Log da operação"))
+        log_title = QLabel("Log da operação")
+        log_title.setObjectName("SectionTitle")
+        right.addWidget(log_title)
         self.log_list = QListWidget()
         right.addWidget(self.log_list)
         self.progress = QProgressBar()
@@ -89,7 +131,9 @@ class CleanerView(QtWidgets.QWidget):
         self.progress.setValue(0)
         self.progress.setVisible(False)
         right.addWidget(self.progress)
-        main_layout.addLayout(right, 2)
+        self.content_splitter.addWidget(results_card)
+        self.content_splitter.setSizes([330, 670])
+        main_layout.addWidget(self.content_splitter, 1)
 
     def _connect_signals(self):
         self.controller.cleaning_started.connect(self._on_started)
@@ -141,6 +185,10 @@ class CleanerView(QtWidgets.QWidget):
         self.analyze_btn.setEnabled(False)
         self.clean_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.clean_status_metric.set_value(
+            "Analisando" if mode == "analyze" else "Limpando"
+        )
+        self.clean_status_metric.set_detail("Operação em andamento")
         self._append_log(f"Operação iniciada: {mode}")
 
     def _on_analysis_completed(self, result):
@@ -148,12 +196,29 @@ class CleanerView(QtWidgets.QWidget):
         self._populate_candidates(result.get("candidates", []))
         self._finish_ui()
         self.clean_btn.setEnabled(bool(result.get("candidates")))
+        self.recoverable_metric.set_value(
+            self._format_size(result.get("bytes_found", 0))
+        )
+        self.items_metric.set_value(len(result.get("candidates", [])))
+        self.items_metric.set_detail(
+            f"{result.get('failed', 0)} falha(s) de análise"
+        )
+        self.clean_status_metric.set_value("Análise concluída")
+        self.clean_status_metric.set_detail("Revise os itens antes de limpar")
         QMessageBox.information(self, "Análise concluída", self._format_result(result))
 
     def _on_clean_completed(self, result):
         self._append_log(self._format_result(result))
         self._last_analysis = None
         self._finish_ui()
+        self.recoverable_metric.set_value(
+            self._format_size(result.get("bytes_freed", 0))
+        )
+        self.recoverable_metric.set_detail("Espaço liberado")
+        self.items_metric.set_value(result.get("removed", 0))
+        self.items_metric.set_detail("Itens removidos")
+        self.clean_status_metric.set_value("Concluída")
+        self.clean_status_metric.set_detail(result.get("status", ""))
         if result.get("status") == "failed":
             title = "Falha na limpeza"
         elif result.get("errors"):
@@ -166,11 +231,15 @@ class CleanerView(QtWidgets.QWidget):
         self._append_log("Operação cancelada; itens já processados não foram revertidos.")
         self._last_analysis = None
         self._finish_ui(cancelled=True)
+        self.clean_status_metric.set_value("Cancelada")
+        self.clean_status_metric.set_detail("Itens processados não foram revertidos")
         QMessageBox.warning(self, "Limpeza cancelada", self._format_result(result))
 
     def _on_error(self, message):
         self._append_log(message)
         self._finish_ui(cancelled=True)
+        self.clean_status_metric.set_value("Falha")
+        self.clean_status_metric.set_detail(str(message))
         QMessageBox.critical(self, "Erro na limpeza", str(message))
 
     def _finish_ui(self, cancelled=False):
@@ -214,6 +283,12 @@ class CleanerView(QtWidgets.QWidget):
 
     def _set_progress(self, value):
         self.progress.setValue(max(0, min(100, int(value))))
+
+    def resizeEvent(self, event):
+        self.content_splitter.setOrientation(
+            QtCore.Qt.Vertical if self.width() < 850 else QtCore.Qt.Horizontal
+        )
+        super().resizeEvent(event)
 
     @staticmethod
     def _format_size(size):

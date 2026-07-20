@@ -28,7 +28,7 @@ class AdminPermissionDialog(QDialog):
         self.setAttribute(Qt.WA_DeleteOnClose)
 
         layout = QVBoxLayout(self)
-
+        layout.setContentsMargins(22, 22, 22, 18)
         layout.setSpacing(15)
 
         # --------------------------------------------------
@@ -64,6 +64,7 @@ class AdminPermissionDialog(QDialog):
         label.setAlignment(Qt.AlignCenter)
 
         layout.addWidget(label)
+        label.setProperty("muted", True)
 
         # --------------------------------------------------
         # BUTTONS
@@ -74,10 +75,12 @@ class AdminPermissionDialog(QDialog):
         btn_layout.setSpacing(10)
 
         self.cancel_btn = QPushButton("Cancelar")
+        self.cancel_btn.setProperty("role", "secondary")
 
         self.cancel_btn.clicked.connect(self.reject)
 
         self.confirm_btn = QPushButton("Continuar")
+        self.confirm_btn.setProperty("role", "primary")
 
         self.confirm_btn.setDefault(True)
 

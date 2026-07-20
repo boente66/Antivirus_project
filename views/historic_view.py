@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from utils.icon_loader import get_icon
+from views.components import CardFrame, MetricCard
 
 
 class HistoricView(QWidget):
@@ -36,14 +38,24 @@ class HistoricView(QWidget):
     def init_ui(self):
         self.setWindowTitle("Histórico de Verificações")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(12)
 
-        title = QLabel("Histórico de Verificações")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(
-            "font-size:22px;font-weight:bold;margin-bottom:10px;color:#2C3E50;"
-        )
-        layout.addWidget(title)
+        metrics = QHBoxLayout()
+        self.scans_metric = MetricCard("Verificações exibidas", "0", "Página atual", "history", "green")
+        self.threats_metric = MetricCard("Ameaças no scan", "0", "Selecione uma verificação", "virus", "orange")
+        self.result_metric = MetricCard("Resultado", "—", "Sem seleção", "status", "blue")
+        metrics.addWidget(self.scans_metric)
+        metrics.addWidget(self.threats_metric)
+        metrics.addWidget(self.result_metric)
+        layout.addLayout(metrics)
+
+        scans_card = CardFrame()
+        scans_layout = QVBoxLayout(scans_card)
+        scans_layout.setContentsMargins(14, 12, 14, 14)
+        scans_title = QLabel("Verificações realizadas")
+        scans_title.setObjectName("SectionTitle")
+        scans_layout.addWidget(scans_title)
 
         self.scan_table = QTableWidget(0, 6)
         self.scan_table.setHorizontalHeaderLabels(
@@ -58,7 +70,7 @@ class HistoricView(QWidget):
         )
         self.scan_table.horizontalHeader().setStretchLastSection(True)
         self.scan_table.itemSelectionChanged.connect(self._load_selected_scan)
-        layout.addWidget(self.scan_table)
+        scans_layout.addWidget(self.scan_table)
 
         scan_navigation = QHBoxLayout()
         self.previous_button = QPushButton("Anterior")
@@ -73,11 +85,15 @@ class HistoricView(QWidget):
         scan_navigation.addWidget(self.next_button)
         scan_navigation.addStretch()
         scan_navigation.addWidget(self.reload_button)
-        layout.addLayout(scan_navigation)
+        scans_layout.addLayout(scan_navigation)
+        layout.addWidget(scans_card, 1)
 
+        details_card = CardFrame()
+        details_layout = QVBoxLayout(details_card)
+        details_layout.setContentsMargins(14, 12, 14, 14)
         self.details_label = QLabel("Selecione um scan para ver as ameaças.")
         self.details_label.setWordWrap(True)
-        layout.addWidget(self.details_label)
+        details_layout.addWidget(self.details_label)
 
         self.threat_table = QTableWidget(0, 4)
         self.threat_table.setHorizontalHeaderLabels(
@@ -90,7 +106,7 @@ class HistoricView(QWidget):
             QHeaderView.ResizeToContents
         )
         self.threat_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.threat_table)
+        details_layout.addWidget(self.threat_table)
 
         threat_navigation = QHBoxLayout()
         self.previous_threat_button = QPushButton("Ameaças anteriores")
@@ -102,7 +118,11 @@ class HistoricView(QWidget):
         threat_navigation.addWidget(self.threat_page_label)
         threat_navigation.addWidget(self.next_threat_button)
         threat_navigation.addStretch()
-        layout.addLayout(threat_navigation)
+        details_layout.addLayout(threat_navigation)
+        layout.addWidget(details_card, 1)
+
+        self.reload_button.setIcon(get_icon("update"))
+        self.reload_button.setProperty("role", "secondary")
 
         self._update_navigation(scan_count=0, threat_count=0)
 
@@ -153,6 +173,8 @@ class HistoricView(QWidget):
 
         self.scan_table.blockSignals(False)
         self.page_label.setText(f"Página {self.page + 1}")
+        self.scans_metric.set_value(len(scans))
+        self.scans_metric.set_detail(f"Página {self.page + 1}")
         self._update_navigation(scan_count=len(scans), threat_count=0)
 
     def _load_selected_scan(self):
@@ -196,6 +218,10 @@ class HistoricView(QWidget):
             f"Tratadas: {scan.treated_threats} | Falhas: {scan.failed_files}"
             f"{error_text}"
         )
+        self.threats_metric.set_value(scan.threat_count or 0)
+        self.threats_metric.set_detail(f"Scan #{scan.id}")
+        self.result_metric.set_value(str(scan.status or "—"))
+        self.result_metric.set_detail(self._scan_type_label(scan.scan_type))
         self._populate_threats(threats)
 
     def _populate_threats(self, threats):

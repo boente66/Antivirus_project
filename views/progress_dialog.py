@@ -10,6 +10,8 @@ from PyQt5.QtWidgets import (
 
 from PyQt5.QtCore import Qt
 from datetime import datetime
+from utils.icon_loader import get_icon
+from views.components import CardFrame
 
 
 class ProgressDialog(QDialog):
@@ -39,6 +41,8 @@ class ProgressDialog(QDialog):
     def _build_ui(self):
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
 
         # -----------------------------------------
         # TÍTULO
@@ -47,9 +51,7 @@ class ProgressDialog(QDialog):
         self.title_label = QLabel("Desinstalando aplicativo...")
         self.title_label.setAlignment(Qt.AlignCenter)
 
-        self.title_label.setStyleSheet(
-            "font-size:16px;font-weight:bold;"
-        )
+        self.title_label.setObjectName("PageTitle")
 
         layout.addWidget(self.title_label)
 
@@ -76,11 +78,18 @@ class ProgressDialog(QDialog):
         # ÁREA DE LOG
         # -----------------------------------------
 
+        log_card = CardFrame()
+        log_layout = QVBoxLayout(log_card)
+        log_layout.setContentsMargins(12, 10, 12, 12)
+        log_title = QLabel("Detalhes da operação (saída do terminal)")
+        log_title.setObjectName("SectionTitle")
+        log_layout.addWidget(log_title)
         self.log_area = QTextEdit(self)
         self.log_area.setReadOnly(True)
         self.log_area.setMinimumHeight(180)
-
-        layout.addWidget(self.log_area)
+        self.log_area.setStyleSheet("background:#101820;color:#B8F59B;font-family:monospace;")
+        log_layout.addWidget(self.log_area)
+        layout.addWidget(log_card)
 
         # -----------------------------------------
         # BOTÕES
@@ -89,40 +98,16 @@ class ProgressDialog(QDialog):
         buttons_layout = QHBoxLayout()
 
         self.cancel_button = QPushButton("Cancelar")
+        self.cancel_button.setIcon(get_icon("stop"))
         self.cancel_button.clicked.connect(self._cancel)
-
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #E67E22;
-                color: white;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #D35400;
-            }
-        """)
+        self.cancel_button.setProperty("role", "danger")
 
         self.close_button = QPushButton("Fechar")
+        self.close_button.setIcon(get_icon("status"))
         self.close_button.setEnabled(False)
         self.close_button.clicked.connect(self.close)
 
-        self.close_button.setStyleSheet("""
-            QPushButton {
-                background-color: #27AE60;
-                color: white;
-                padding: 8px;
-                border-radius: 5px;
-            }
-
-            QPushButton:disabled {
-                background-color: #A9A9A9;
-            }
-
-            QPushButton:hover {
-                background-color: #2ECC71;
-            }
-        """)
+        self.close_button.setProperty("role", "primary")
 
         buttons_layout.addWidget(self.cancel_button)
         buttons_layout.addWidget(self.close_button)

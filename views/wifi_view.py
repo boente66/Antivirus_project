@@ -4,12 +4,12 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QPushButton,
     QLineEdit,
-    QMessageBox
+    QMessageBox,
+    QLabel,
 )
 
-from PyQt5.QtGui import QIcon
-
 from controllers.firewall_controller import FirewallController
+from utils.icon_loader import get_icon
 
 
 class WiFiView(QWidget):
@@ -28,6 +28,10 @@ class WiFiView(QWidget):
     def init_ui(self):
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        title = QLabel("Redes Wi-Fi conhecidas")
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
 
         # --------------------------------------
         # Lista de redes
@@ -110,21 +114,9 @@ class WiFiView(QWidget):
 
         btn = QPushButton(text)
 
-        btn.setIcon(QIcon(icon_path))
-
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                font-size: 14px;
-                padding: 10px 8px;
-                border-radius: 5px;
-            }}
-
-            QPushButton:hover {{
-                background-color: {hover_color};
-            }}
-        """)
+        icon_name = icon_path.rsplit("/", 1)[-1].split(".", 1)[0]
+        btn.setIcon(get_icon(icon_name))
+        btn.setProperty("role", "danger" if "Bloquear" in text else "secondary")
 
         btn.clicked.connect(callback)
 

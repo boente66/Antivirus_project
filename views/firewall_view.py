@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QTabWidget,
-    QLabel, QPushButton, QTextEdit, QListWidget
+    QLabel, QPushButton, QTextEdit, QListWidget, QHBoxLayout
 )
 
 from PyQt5.QtCore import Qt, QTimer
@@ -11,6 +11,7 @@ from views.permissions_view import PermissionsView
 from views.wifi_view import WiFiView
 
 from utils.icon_loader import get_icon
+from views.components import MetricCard
 
 
 class FirewallView(QWidget):
@@ -33,6 +34,15 @@ class FirewallView(QWidget):
     def _build_ui(self):
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(12)
+
+        metrics = QHBoxLayout()
+        self.firewall_metric = MetricCard("Estado do firewall", "Verificando", "Proteção de rede", "firewall", "green")
+        self.monitor_metric = MetricCard("Monitoramento", "Parado", "Conexões em tempo real", "network", "blue")
+        metrics.addWidget(self.firewall_metric)
+        metrics.addWidget(self.monitor_metric)
+        layout.addLayout(metrics)
 
         tabs = QTabWidget()
 
@@ -68,9 +78,7 @@ class FirewallView(QWidget):
         self.title_label = QLabel("Gerenciamento de Regras de Firewall")
         self.title_label.setAlignment(Qt.AlignCenter)
 
-        self.title_label.setStyleSheet(
-            "font-size:18px;font-weight:bold;"
-        )
+        self.title_label.setObjectName("SectionTitle")
 
         firewall_layout.addWidget(self.title_label)
 
@@ -88,7 +96,7 @@ class FirewallView(QWidget):
         add_rule_button.setIcon(get_icon("shield"))
         add_rule_button.clicked.connect(self.add_rule)
 
-        add_rule_button.setStyleSheet(self._button_blue())
+        add_rule_button.setProperty("role", "secondary")
 
         firewall_layout.addWidget(add_rule_button)
 
@@ -96,7 +104,7 @@ class FirewallView(QWidget):
         list_rules_button.setIcon(get_icon("list"))
         list_rules_button.clicked.connect(self.list_rules)
 
-        list_rules_button.setStyleSheet(self._button_green())
+        list_rules_button.setProperty("role", "secondary")
 
         firewall_layout.addWidget(list_rules_button)
 
@@ -105,9 +113,7 @@ class FirewallView(QWidget):
         self.status_label = QLabel("")
         self.status_label.setAlignment(Qt.AlignCenter)
 
-        self.status_label.setStyleSheet(
-            "font-size:14px;font-weight:bold;"
-        )
+        self.status_label.setObjectName("SectionTitle")
 
         firewall_layout.addWidget(self.status_label)
 
@@ -116,7 +122,7 @@ class FirewallView(QWidget):
         activate_button = QPushButton("Ativar Firewall")
         activate_button.setIcon(get_icon("shield"))
         activate_button.clicked.connect(self.activate_firewall)
-        activate_button.setStyleSheet(self._button_green())
+        activate_button.setProperty("role", "primary")
 
         firewall_layout.addWidget(activate_button)
 
@@ -125,7 +131,7 @@ class FirewallView(QWidget):
         deactivate_button = QPushButton("Desativar Firewall")
         deactivate_button.setIcon(get_icon("shield_off"))
         deactivate_button.clicked.connect(self.deactivate_firewall)
-        deactivate_button.setStyleSheet(self._button_red())
+        deactivate_button.setProperty("role", "danger")
 
         firewall_layout.addWidget(deactivate_button)
 
@@ -152,7 +158,7 @@ class FirewallView(QWidget):
         start_monitor_button.setIcon(get_icon("play"))
         start_monitor_button.clicked.connect(self.start_monitor)
 
-        start_monitor_button.setStyleSheet(self._button_blue())
+        start_monitor_button.setProperty("role", "primary")
 
         monitor_layout.addWidget(start_monitor_button)
 
@@ -160,7 +166,7 @@ class FirewallView(QWidget):
         stop_monitor_button.setIcon(get_icon("stop"))
         stop_monitor_button.clicked.connect(self.stop_monitor)
 
-        stop_monitor_button.setStyleSheet(self._button_red())
+        stop_monitor_button.setProperty("role", "danger")
 
         monitor_layout.addWidget(stop_monitor_button)
 
@@ -235,6 +241,8 @@ class FirewallView(QWidget):
             status = "Desconhecido"
 
         self.status_label.setText(f"Status do Firewall: {status}")
+        self.firewall_metric.set_value(str(status))
+        self.firewall_metric.set_detail("Status informado pelo sistema")
 
     # =====================================================
     # AÇÕES
@@ -309,6 +317,8 @@ class FirewallView(QWidget):
             self.controller.start_monitoring()
 
             self.timer.start(3000)
+            self.monitor_metric.set_value("Ativo")
+            self.monitor_metric.set_detail("Atualização a cada 3 segundos")
 
             self.log_message("Monitoramento iniciado")
 
@@ -323,6 +333,8 @@ class FirewallView(QWidget):
             self.controller.stop_monitoring()
 
             self.timer.stop()
+            self.monitor_metric.set_value("Parado")
+            self.monitor_metric.set_detail("Monitoramento interrompido")
 
             self.log_message("Monitoramento parado")
 

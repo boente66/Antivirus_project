@@ -11,6 +11,11 @@ class BrowserProcessWarningDialog(QtWidgets.QDialog):
         self.setMinimumWidth(480)
 
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(22, 22, 22, 18)
+        layout.setSpacing(12)
+        title = QtWidgets.QLabel("Navegadores em execução")
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
         message = QtWidgets.QLabel(
             "Foram encontrados navegadores em execução.\n\n"
             "Durante um escaneamento completo o desempenho poderá ser "
@@ -52,6 +57,8 @@ class BrowserProcessWarningDialog(QtWidgets.QDialog):
         )
         continue_button.clicked.connect(self.accept)
         cancel_button.clicked.connect(self.reject)
+        continue_button.setProperty("role", "primary")
+        cancel_button.setProperty("role", "secondary")
         layout.addWidget(buttons)
 
     def dont_show_again(self):

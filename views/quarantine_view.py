@@ -11,6 +11,7 @@ from datetime import datetime
 import os
 
 from utils.icon_loader import get_icon
+from views.components import CardFrame, EmptyState, MetricCard
 
 
 class QuarantineView(QWidget):
@@ -32,24 +33,39 @@ class QuarantineView(QWidget):
     def _build_ui(self):
 
         self.setWindowTitle("Quarentena")
-        self.setMinimumWidth(650)
-
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(12)
 
         # --------------------------------------------------
         # Título
         # --------------------------------------------------
 
-        title = QLabel("Arquivos em Quarentena")
-        title.setStyleSheet(
-            "font-size:20px;font-weight:bold;"
-        )
-
-        layout.addWidget(title)
+        metrics = QHBoxLayout()
+        self.count_metric = MetricCard("Arquivos isolados", "0", "Local seguro", "quarantine", "green")
+        self.last_metric = MetricCard("Última ameaça", "—", "Nenhum registro", "history", "blue")
+        self.safety_metric = MetricCard("Proteção", "Segura", "Arquivos não oferecem risco", "status", "orange")
+        metrics.addWidget(self.count_metric)
+        metrics.addWidget(self.last_metric)
+        metrics.addWidget(self.safety_metric)
+        layout.addLayout(metrics)
 
         # --------------------------------------------------
         # Tabela
         # --------------------------------------------------
+
+        table_card = CardFrame()
+        table_layout = QVBoxLayout(table_card)
+        table_layout.setContentsMargins(14, 12, 14, 14)
+        table_title = QLabel("Itens em quarentena")
+        table_title.setObjectName("SectionTitle")
+        table_layout.addWidget(table_title)
+        self.empty_state = EmptyState(
+            "Quarentena vazia",
+            "Nenhum arquivo está isolado no momento.",
+            "quarantine",
+        )
+        table_layout.addWidget(self.empty_state)
 
         self.table = QTableWidget(0, 5)
 
@@ -93,7 +109,8 @@ class QuarantineView(QWidget):
             4, QHeaderView.ResizeToContents
         )
 
-        layout.addWidget(self.table)
+        table_layout.addWidget(self.table, 1)
+        layout.addWidget(table_card, 1)
 
         # --------------------------------------------------
         # Botões
@@ -103,12 +120,14 @@ class QuarantineView(QWidget):
 
         self.restore_btn = QPushButton("Restaurar")
         self.restore_btn.setIcon(get_icon("restore"))
+        self.restore_btn.setProperty("role", "secondary")
 
         self.delete_btn = QPushButton(
             "Excluir Definitivamente"
         )
 
         self.delete_btn.setIcon(get_icon("delete"))
+        self.delete_btn.setProperty("role", "danger")
 
         btn_layout.addWidget(self.restore_btn)
         btn_layout.addWidget(self.delete_btn)
@@ -144,6 +163,12 @@ class QuarantineView(QWidget):
     def _populate(self, items):
 
         self.table.setRowCount(0)
+        self.count_metric.set_value(len(items))
+        self.count_metric.set_detail(
+            "Nenhum item isolado" if not items else "Itens armazenados com segurança"
+        )
+        self.empty_state.setVisible(not items)
+        self.table.setVisible(bool(items))
 
         if not items:
 
@@ -164,6 +189,9 @@ class QuarantineView(QWidget):
             ) or "",
             reverse=True
         )
+        _, _, last_threat, last_date, _ = self._extract_data(items[0])
+        self.last_metric.set_value(last_date or "—")
+        self.last_metric.set_detail(last_threat or "Ameaça não identificada")
 
         for item in items:
 

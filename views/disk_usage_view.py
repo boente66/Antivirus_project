@@ -4,6 +4,7 @@ from PyQt5.QtGui import QPainter
 
 from controllers.disk_usage_controller import DiskUsageController
 from workers.disk_usage_worker import DiskUsageWorker
+from views.components import CardFrame, MetricCard
 
 
 class DiskUsageView(QtWidgets.QWidget):
@@ -29,14 +30,16 @@ class DiskUsageView(QtWidgets.QWidget):
     def _build_ui(self):
 
         main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setContentsMargins(0, 4, 0, 0)
         main_layout.setSpacing(12)
 
         # -----------------------------------
         # Seleção de disco
         # -----------------------------------
 
-        selector_layout = QtWidgets.QHBoxLayout()
+        top_card = CardFrame()
+        selector_layout = QtWidgets.QHBoxLayout(top_card)
+        selector_layout.setContentsMargins(14, 12, 14, 12)
 
         label = QtWidgets.QLabel("Escolha o disco:")
 
@@ -48,21 +51,24 @@ class DiskUsageView(QtWidgets.QWidget):
         selector_layout.addWidget(label)
         selector_layout.addWidget(self.volume_combo)
 
-        main_layout.addLayout(selector_layout)
+        main_layout.addWidget(top_card)
 
         # -----------------------------------
         # Resumo do disco
         # -----------------------------------
 
+        metrics = QtWidgets.QHBoxLayout()
+        self.total_metric = MetricCard("Capacidade", "—", "Disco selecionado", "disk", "green")
+        self.used_metric = MetricCard("Espaço usado", "—", "Aguardando dados", "disk", "blue")
+        self.free_metric = MetricCard("Espaço livre", "—", "Aguardando dados", "folder", "purple")
+        metrics.addWidget(self.total_metric)
+        metrics.addWidget(self.used_metric)
+        metrics.addWidget(self.free_metric)
+        main_layout.addLayout(metrics)
+
         self.summary_label = QtWidgets.QLabel("Selecione um disco")
-        self.summary_label.setAlignment(QtCore.Qt.AlignCenter)
-
-        self.summary_label.setStyleSheet("""
-            font-size: 16px;
-            font-weight: bold;
-        """)
-
-        main_layout.addWidget(self.summary_label)
+        self.summary_label.setProperty("muted", True)
+        self.summary_label.setWordWrap(True)
 
         # -----------------------------------
         # Barra uso disco
@@ -72,7 +78,7 @@ class DiskUsageView(QtWidgets.QWidget):
         self.usage_bar.setValue(0)
         self.usage_bar.setFormat("%p% usado")
 
-        main_layout.addWidget(self.usage_bar)
+        top_card.layout().addWidget(self.usage_bar)
 
         # -----------------------------------
         # Status scan
@@ -81,7 +87,7 @@ class DiskUsageView(QtWidgets.QWidget):
         self.status_label = QtWidgets.QLabel("")
         self.status_label.setAlignment(QtCore.Qt.AlignCenter)
 
-        main_layout.addWidget(self.status_label)
+        top_card.layout().addWidget(self.status_label)
 
         # -----------------------------------
         # progresso scan
@@ -90,7 +96,7 @@ class DiskUsageView(QtWidgets.QWidget):
         self.scan_progress = QtWidgets.QProgressBar()
         self.scan_progress.setValue(0)
 
-        main_layout.addWidget(self.scan_progress)
+        top_card.layout().addWidget(self.scan_progress)
 
         # -----------------------------------
         # botão cancelar
@@ -103,19 +109,36 @@ class DiskUsageView(QtWidgets.QWidget):
         self.cancel_button.clicked.connect(self.cancel_scan)
         self.cancel_button.setEnabled(False)
 
-        main_layout.addWidget(self.cancel_button)
+        self.cancel_button.setProperty("role", "danger")
+        top_card.layout().addWidget(self.cancel_button)
+
+        content = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        content.setChildrenCollapsible(False)
+        chart_card = CardFrame()
+        chart_layout = QtWidgets.QVBoxLayout(chart_card)
+        chart_layout.setContentsMargins(14, 12, 14, 14)
+        chart_title = QtWidgets.QLabel("Distribuição do disco")
+        chart_title.setObjectName("SectionTitle")
+        chart_layout.addWidget(chart_title)
 
         # -----------------------------------
         # gráfico
         # -----------------------------------
 
         self.chart_container = QtWidgets.QVBoxLayout()
-        main_layout.addLayout(self.chart_container)
+        chart_layout.addLayout(self.chart_container)
+        content.addWidget(chart_card)
 
         # -----------------------------------
         # tabela diretórios
         # -----------------------------------
 
+        table_card = CardFrame()
+        table_layout = QtWidgets.QVBoxLayout(table_card)
+        table_layout.setContentsMargins(14, 12, 14, 14)
+        table_title = QtWidgets.QLabel("Pastas e arquivos por tamanho")
+        table_title.setObjectName("SectionTitle")
+        table_layout.addWidget(table_title)
         self.table = QtWidgets.QTableWidget()
 
         self.table.setColumnCount(2)
@@ -130,7 +153,11 @@ class DiskUsageView(QtWidgets.QWidget):
             QtWidgets.QAbstractItemView.NoEditTriggers
         )
 
-        main_layout.addWidget(self.table)
+        table_layout.addWidget(self.table)
+        content.addWidget(table_card)
+        content.setSizes([430, 570])
+        self.content_splitter = content
+        main_layout.addWidget(content, 1)
 
     # --------------------------------------------------
     # Conversão tamanho
@@ -219,6 +246,11 @@ class DiskUsageView(QtWidgets.QWidget):
             f"Usado: {self._format_size(used)} | "
             f"Livre: {self._format_size(free)}"
         )
+        self.total_metric.set_value(self._format_size(total))
+        self.used_metric.set_value(self._format_size(used))
+        self.used_metric.set_detail(f"{percent:.1f}% da capacidade")
+        self.free_metric.set_value(self._format_size(free))
+        self.free_metric.set_detail("Disponível no volume")
 
         self.usage_bar.setValue(int(round(percent)))
 
@@ -386,3 +418,9 @@ class DiskUsageView(QtWidgets.QWidget):
             "Erro",
             message
         )
+
+    def resizeEvent(self, event):
+        self.content_splitter.setOrientation(
+            QtCore.Qt.Vertical if self.width() < 820 else QtCore.Qt.Horizontal
+        )
+        super().resizeEvent(event)

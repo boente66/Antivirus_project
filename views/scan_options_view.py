@@ -2,7 +2,7 @@ import platform
 import os
 from PyQt5.QtWidgets import QWidget, QPushButton, QLabel, QMessageBox
 from PyQt5 import QtWidgets
-from PyQt5.QtGui import QFont
+from views.components import FeatureCard
 
 
 class CustomScanView(QWidget):
@@ -30,28 +30,36 @@ class CustomScanView(QWidget):
 
     def _build_ui(self):
         self.setWindowTitle("Escaneamento Personalizado")
-        self.setMinimumSize(500, 300)
+        self.main_layout.setContentsMargins(0, 4, 0, 0)
+        self.main_layout.setSpacing(12)
 
         title = QLabel("Escolha o tipo de escaneamento")
-        title.setFont(QFont("Arial", 16, QFont.Bold))
-        title.setStyleSheet("color: #2C3E50; padding: 12px;")
+        title.setObjectName("SectionTitle")
         self.main_layout.addWidget(title)
 
         # ---------------------------
         # SMART SCAN
         # ---------------------------
-        smart_btn = QPushButton("Verificação Inteligente (Recomendado)")
-        smart_btn.setStyleSheet(self._btn_style("#27AE60", "#1E8449"))
-        smart_btn.clicked.connect(self.start_smart_scan)
-        self.main_layout.addWidget(smart_btn)
+        smart_card = FeatureCard(
+            "Verificação inteligente",
+            "Analisa os locais mais importantes do sistema com equilíbrio entre velocidade e cobertura.",
+            "Iniciar verificação inteligente",
+            "scan",
+        )
+        smart_card.activated.connect(self.start_smart_scan)
+        self.main_layout.addWidget(smart_card)
 
         # ---------------------------
         # CUSTOM SCAN
         # ---------------------------
-        custom_btn = QPushButton("Escaneamento Personalizado")
-        custom_btn.setStyleSheet(self._btn_style("#3498DB", "#2E86C1"))
-        custom_btn.clicked.connect(self.start_custom_scan)
-        self.main_layout.addWidget(custom_btn)
+        custom_card = FeatureCard(
+            "Escaneamento personalizado",
+            "Analisa o diretório padrão configurado para o usuário.",
+            "Selecionar e verificar",
+            "folder",
+        )
+        custom_card.activated.connect(self.start_custom_scan)
+        self.main_layout.addWidget(custom_card)
 
         self.main_layout.addStretch()
 
@@ -99,17 +107,3 @@ class CustomScanView(QWidget):
             user = os.getenv("USERNAME")
             return f"C:\\Users\\{user}"
         return "/"
-
-    def _btn_style(self, color, hover):
-        return f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                font-size: 14px;
-                padding: 10px;
-                border-radius: 6px;
-            }}
-            QPushButton:hover {{
-                background-color: {hover};
-            }}
-        """

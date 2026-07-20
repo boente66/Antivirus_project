@@ -1,11 +1,11 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QListWidget,
-    QPushButton, QLineEdit, QMessageBox
+    QPushButton, QLineEdit, QMessageBox, QLabel
 )
-from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 
 from controllers.firewall_controller import FirewallController
+from utils.icon_loader import get_icon
 
 
 class PermissionsView(QWidget):
@@ -24,6 +24,10 @@ class PermissionsView(QWidget):
     def init_ui(self):
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(16, 16, 16, 16)
+        title = QLabel("Permissões de aplicativos")
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
 
         # -------------------------
         # Lista de aplicativos
@@ -92,21 +96,9 @@ class PermissionsView(QWidget):
 
         btn = QPushButton(text)
 
-        btn.setIcon(QIcon(icon_path))
-
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                font-size: 14px;
-                padding: 10px 8px;
-                border-radius: 5px;
-            }}
-
-            QPushButton:hover {{
-                background-color: {hover_color};
-            }}
-        """)
+        icon_name = icon_path.rsplit("/", 1)[-1].split(".", 1)[0]
+        btn.setIcon(get_icon(icon_name))
+        btn.setProperty("role", "danger" if "Bloquear" in text else "secondary")
 
         btn.clicked.connect(callback)
 
