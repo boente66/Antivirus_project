@@ -7,6 +7,9 @@ from .platform_adapter import PlatformAdapter
 
 class MacAdapter(PlatformAdapter):
 
+    platform = "macOS"
+    backend = "macos_firewall"
+
     # --------------------------------------------------
     # Sistema operacional
     # --------------------------------------------------

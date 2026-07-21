@@ -1,379 +1,308 @@
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QTabWidget,
-    QLabel, QPushButton, QTextEdit, QListWidget, QHBoxLayout
-)
-
-from PyQt5.QtCore import Qt, QTimer
 from datetime import datetime
 
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import (
+    QAbstractItemView,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
 from controllers.firewall_controller import FirewallController
+from models.firewall_contracts import FirewallOperation, OperationStatus
+from utils.icon_loader import get_icon
+from views.components import MetricCard
+from views.firewall_rule_dialog import FirewallRuleDialog
 from views.permissions_view import PermissionsView
 from views.wifi_view import WiFiView
 
-from utils.icon_loader import get_icon
-from views.components import MetricCard
-
 
 class FirewallView(QWidget):
+    """Interface do Firewall conectada somente a estados confirmados."""
 
-    def __init__(self, parent=None):
+    MUTATIONS = {
+        FirewallOperation.ENABLE.value,
+        FirewallOperation.DISABLE.value,
+        FirewallOperation.ADD_RULE.value,
+        FirewallOperation.DELETE_RULE.value,
+    }
+
+    def __init__(self, parent=None, controller=None):
         super().__init__(parent)
-
-        self.controller = FirewallController()
-
-        self.timer = QTimer()
+        self.controller = controller or FirewallController()
+        self.timer = QTimer(self)
         self.timer.timeout.connect(self._update_connections)
+        self._running_mutations = set()
+        self._initial_reads_requested = False
 
         self._build_ui()
-        self._update_status()
-
-    # =====================================================
-    # UI
-    # =====================================================
+        self._connect_controller()
+        self._apply_capability(self.controller.capability)
+        QTimer.singleShot(0, self.controller.refresh_capability)
 
     def _build_ui(self):
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(12)
 
         metrics = QHBoxLayout()
-        self.firewall_metric = MetricCard("Estado do firewall", "Verificando", "Proteção de rede", "firewall", "green")
-        self.monitor_metric = MetricCard("Monitoramento", "Parado", "Conexões em tempo real", "network", "blue")
+        self.firewall_metric = MetricCard(
+            "Estado do firewall", "Verificando", "Proteção de rede", "firewall", "green"
+        )
+        self.monitor_metric = MetricCard(
+            "Monitoramento", "Parado", "Conexões em tempo real", "network", "blue"
+        )
         metrics.addWidget(self.firewall_metric)
         metrics.addWidget(self.monitor_metric)
         layout.addLayout(metrics)
 
-        tabs = QTabWidget()
+        self.tabs = QTabWidget()
+        self.permissions_tab = PermissionsView(self.controller)
+        self.wifi_tab = WiFiView(self.controller)
+        self.tabs.addTab(self.permissions_tab, get_icon("apps"), "Aplicativos")
+        self.tabs.addTab(self.wifi_tab, get_icon("wifi"), "Redes Wi-Fi")
+        self.tabs.addTab(self._build_rules_tab(), get_icon("firewall"), "Regras de Firewall")
+        self.tabs.addTab(self._build_monitor_tab(), get_icon("network"), "Monitor de Rede")
+        layout.addWidget(self.tabs)
 
-        # -------------------------------------------------
-        # ABA 1 — Aplicativos
-        # -------------------------------------------------
+    def _build_rules_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
 
-        permissions_tab = PermissionsView(self.controller)
-        tabs.addTab(
-            permissions_tab,
-            get_icon("apps"),
-            "Aplicativos"
+        title = QLabel("Gerenciamento de Regras de Firewall")
+        title.setAlignment(Qt.AlignCenter)
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
+
+        self.status_label = QLabel("Verificando capacidade do sistema…")
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        self.rules_list = QListWidget()
+        self.rules_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.rules_list.itemSelectionChanged.connect(self._update_write_controls)
+        layout.addWidget(self.rules_list)
+
+        rule_actions = QHBoxLayout()
+        self.add_rule_button = self._button(
+            "Adicionar Regra", "shield", "secondary", self.add_rule
         )
-
-        # -------------------------------------------------
-        # ABA 2 — Wi-Fi
-        # -------------------------------------------------
-
-        wifi_tab = WiFiView(self.controller)
-        tabs.addTab(
-            wifi_tab,
-            get_icon("wifi"),
-            "Redes Wi-Fi"
+        self.remove_rule_button = self._button(
+            "Remover Selecionada", "delete", "danger", self.remove_rule
         )
+        self.list_rules_button = self._button(
+            "Atualizar Regras", "update", "secondary", self.list_rules
+        )
+        rule_actions.addWidget(self.add_rule_button)
+        rule_actions.addWidget(self.remove_rule_button)
+        rule_actions.addWidget(self.list_rules_button)
+        layout.addLayout(rule_actions)
 
-        # -------------------------------------------------
-        # ABA 3 — REGRAS FIREWALL
-        # -------------------------------------------------
-
-        firewall_rules_tab = QWidget()
-        firewall_layout = QVBoxLayout()
-
-        self.title_label = QLabel("Gerenciamento de Regras de Firewall")
-        self.title_label.setAlignment(Qt.AlignCenter)
-
-        self.title_label.setObjectName("SectionTitle")
-
-        firewall_layout.addWidget(self.title_label)
-
-        # ---------------- LOG ----------------
+        state_actions = QHBoxLayout()
+        self.activate_button = self._button(
+            "Ativar Firewall", "shield", "primary", self.activate_firewall
+        )
+        self.deactivate_button = self._button(
+            "Desativar Firewall", "shield_off", "danger", self.deactivate_firewall
+        )
+        state_actions.addWidget(self.activate_button)
+        state_actions.addWidget(self.deactivate_button)
+        layout.addLayout(state_actions)
 
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
-        self.log_area.setMinimumHeight(180)
+        self.log_area.setMinimumHeight(140)
+        layout.addWidget(self.log_area)
+        return tab
 
-        firewall_layout.addWidget(self.log_area)
-
-        # ---------------- BOTÕES ----------------
-
-        add_rule_button = QPushButton("Adicionar Regra")
-        add_rule_button.setIcon(get_icon("shield"))
-        add_rule_button.clicked.connect(self.add_rule)
-
-        add_rule_button.setProperty("role", "secondary")
-
-        firewall_layout.addWidget(add_rule_button)
-
-        list_rules_button = QPushButton("Listar Regras Ativas")
-        list_rules_button.setIcon(get_icon("list"))
-        list_rules_button.clicked.connect(self.list_rules)
-
-        list_rules_button.setProperty("role", "secondary")
-
-        firewall_layout.addWidget(list_rules_button)
-
-        # ---------------- STATUS ----------------
-
-        self.status_label = QLabel("")
-        self.status_label.setAlignment(Qt.AlignCenter)
-
-        self.status_label.setObjectName("SectionTitle")
-
-        firewall_layout.addWidget(self.status_label)
-
-        # ---------------- ATIVAR ----------------
-
-        activate_button = QPushButton("Ativar Firewall")
-        activate_button.setIcon(get_icon("shield"))
-        activate_button.clicked.connect(self.activate_firewall)
-        activate_button.setProperty("role", "primary")
-
-        firewall_layout.addWidget(activate_button)
-
-        # ---------------- DESATIVAR ----------------
-
-        deactivate_button = QPushButton("Desativar Firewall")
-        deactivate_button.setIcon(get_icon("shield_off"))
-        deactivate_button.clicked.connect(self.deactivate_firewall)
-        deactivate_button.setProperty("role", "danger")
-
-        firewall_layout.addWidget(deactivate_button)
-
-        firewall_rules_tab.setLayout(firewall_layout)
-
-        tabs.addTab(
-            firewall_rules_tab,
-            get_icon("firewall"),
-            "Regras de Firewall"
-        )
-
-        # -------------------------------------------------
-        # ABA 4 — MONITOR DE REDE
-        # -------------------------------------------------
-
-        monitor_tab = QWidget()
-        monitor_layout = QVBoxLayout()
-
+    def _build_monitor_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
         self.connections_list = QListWidget()
-
-        monitor_layout.addWidget(self.connections_list)
-
-        start_monitor_button = QPushButton("Iniciar Monitoramento")
-        start_monitor_button.setIcon(get_icon("play"))
-        start_monitor_button.clicked.connect(self.start_monitor)
-
-        start_monitor_button.setProperty("role", "primary")
-
-        monitor_layout.addWidget(start_monitor_button)
-
-        stop_monitor_button = QPushButton("Parar Monitoramento")
-        stop_monitor_button.setIcon(get_icon("stop"))
-        stop_monitor_button.clicked.connect(self.stop_monitor)
-
-        stop_monitor_button.setProperty("role", "danger")
-
-        monitor_layout.addWidget(stop_monitor_button)
-
-        monitor_tab.setLayout(monitor_layout)
-
-        tabs.addTab(
-            monitor_tab,
-            get_icon("network"),
-            "Monitor de Rede"
+        layout.addWidget(self.connections_list)
+        self.start_monitor_button = self._button(
+            "Iniciar Monitoramento", "play", "primary", self.start_monitor
         )
+        self.stop_monitor_button = self._button(
+            "Parar Monitoramento", "stop", "danger", self.stop_monitor
+        )
+        layout.addWidget(self.start_monitor_button)
+        layout.addWidget(self.stop_monitor_button)
+        return tab
 
-        layout.addWidget(tabs)
+    @staticmethod
+    def _button(text, icon, role, callback):
+        button = QPushButton(text)
+        button.setIcon(get_icon(icon))
+        button.setProperty("role", role)
+        button.clicked.connect(callback)
+        return button
 
-    # =====================================================
-    # BOTÕES PADRÃO
-    # =====================================================
+    def _connect_controller(self):
+        self.controller.capability_changed.connect(self._on_capability_changed)
+        self.controller.rules_updated.connect(self._display_rules)
+        self.controller.operation_started.connect(self._on_operation_started)
+        self.controller.awaiting_authorization.connect(self._on_authorization)
+        self.controller.operation_completed.connect(self._on_operation_completed)
+        self.controller.operation_failed.connect(self._on_operation_failed)
+        self.controller.log_updated.connect(self.log_message)
 
-    def _button_blue(self):
+    def _on_capability_changed(self, capability):
+        self._apply_capability(capability)
+        if not self._initial_reads_requested:
+            self._initial_reads_requested = True
+            if capability.readable:
+                self.controller.refresh_status()
+                self.controller.refresh_rules()
 
-        return """
-            QPushButton {
-                background-color: #3498DB;
-                color: white;
-                font-size: 15px;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #5DADE2;
-            }
-        """
+    def _apply_capability(self, capability):
+        if capability.active is True:
+            state = "Ativado"
+        elif capability.active is False:
+            state = "Desativado"
+        else:
+            state = "Indisponível"
+        self.firewall_metric.set_value(state)
+        self.firewall_metric.set_detail(capability.reason or "Estado confirmado pelo sistema")
+        self.status_label.setText(
+            f"Status do Firewall: {state}\n{capability.reason or ''}".strip()
+        )
+        self._update_write_controls()
 
-    def _button_green(self):
-
-        return """
-            QPushButton {
-                background-color: #27AE60;
-                color: white;
-                font-size: 15px;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #2ECC71;
-            }
-        """
-
-    def _button_red(self):
-
-        return """
-            QPushButton {
-                background-color: #E74C3C;
-                color: white;
-                font-size: 15px;
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #EC7063;
-            }
-        """
-
-    # =====================================================
-    # STATUS
-    # =====================================================
-
-    def _update_status(self):
-
-        try:
-            status = self.controller.get_firewall_status()
-        except Exception:
-            status = "Desconhecido"
-
-        self.status_label.setText(f"Status do Firewall: {status}")
-        self.firewall_metric.set_value(str(status))
-        self.firewall_metric.set_detail("Status informado pelo sistema")
-
-    # =====================================================
-    # AÇÕES
-    # =====================================================
+    def _update_write_controls(self):
+        capability = self.controller.capability
+        writable = capability.writable and not capability.write_blocked
+        mutation_running = bool(self._running_mutations)
+        enabled = writable and not mutation_running
+        self.add_rule_button.setEnabled(enabled)
+        selected = self.rules_list.currentItem()
+        rule = selected.data(Qt.UserRole) if selected else None
+        self.remove_rule_button.setEnabled(
+            enabled and rule is not None and rule.editable and not rule.protected
+        )
+        self.activate_button.setEnabled(enabled and capability.active is not True)
+        self.deactivate_button.setEnabled(enabled and capability.active is not False)
+        self.list_rules_button.setEnabled(capability.readable and not mutation_running)
 
     def add_rule(self):
+        dialog = FirewallRuleDialog(self)
+        if dialog.exec_() == dialog.Accepted:
+            self.controller.add_rule(payload=dialog.payload())
 
-        try:
-
-            message = self.controller.add_rule(
-                "Bloquear Porta 8080",
-                8080,
-                "TCP",
-                "block"
-            )
-
-            self.log_message(message)
-
-        except Exception as e:
-            self.log_message(f"Erro ao adicionar regra: {e}")
+    def remove_rule(self):
+        item = self.rules_list.currentItem()
+        rule = item.data(Qt.UserRole) if item else None
+        if rule is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Remover regra",
+            f"Remover a regra '{rule.name}' do UFW?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer == QMessageBox.Yes:
+            self.controller.remove_rule(rule.id, rule.version)
 
     def list_rules(self):
-
-        try:
-
-            rules = self.controller.list_rules()
-
-            if rules:
-                self.log_message("\n".join(rules))
-            else:
-                self.log_message("Nenhuma regra ativa encontrada.")
-
-        except Exception as e:
-            self.log_message(f"Erro ao listar regras: {e}")
+        self.controller.refresh_rules()
 
     def activate_firewall(self):
-
-        try:
-
-            message = self.controller.activate_firewall()
-
-            QApplication.processEvents()
-
-            self._update_status()
-
-            self.log_message(message)
-
-        except Exception as e:
-            self.log_message(f"Erro ao ativar firewall: {e}")
+        self.controller.activate_firewall()
 
     def deactivate_firewall(self):
+        self.controller.deactivate_firewall()
 
-        try:
+    def _on_operation_started(self, _operation_id, operation):
+        if operation in self.MUTATIONS:
+            self._running_mutations.add(_operation_id)
+            self.status_label.setText("Operação do Firewall em andamento…")
+            self._update_write_controls()
 
-            message = self.controller.deactivate_firewall()
+    def _on_authorization(self, _operation_id, _reason):
+        self.status_label.setText("Aguardando autorização do sistema…")
 
-            self._update_status()
+    def _on_operation_completed(self, result):
+        self._operation_finished(result)
+        if result.operation_id and result.changed:
+            QMessageBox.information(self, "Firewall", result.message)
+        if result.changed:
+            self.controller.refresh_status()
+            self.controller.refresh_rules()
 
-            self.log_message(message)
+    def _on_operation_failed(self, result):
+        self._operation_finished(result)
+        if result.status == OperationStatus.CANCELLED.value:
+            QMessageBox.information(self, "Autorização cancelada", result.message)
+        elif result.status not in {
+            OperationStatus.UNSUPPORTED.value,
+            OperationStatus.BACKEND_CONFLICT.value,
+        }:
+            QMessageBox.warning(self, "Operação não concluída", result.message)
 
-        except Exception as e:
-            self.log_message(f"Erro ao desativar firewall: {e}")
+    def _operation_finished(self, result):
+        self._running_mutations.discard(result.operation_id)
+        self._apply_capability(self.controller.capability)
 
-    # =====================================================
-    # MONITOR DE REDE
-    # =====================================================
+    def _display_rules(self, rules):
+        self.rules_list.clear()
+        for rule in rules:
+            port = str(rule.port_start)
+            if rule.port_end != rule.port_start:
+                port = f"{rule.port_start}-{rule.port_end}"
+            text = (
+                f"{rule.name} | {rule.action.upper()} {rule.direction.upper()} | "
+                f"{port}/{rule.protocol} | origem: {rule.source}"
+            )
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, rule)
+            if rule.protected or not rule.editable:
+                item.setToolTip("Regra externa/protegida: remoção desabilitada.")
+            self.rules_list.addItem(item)
+        self._update_write_controls()
 
     def start_monitor(self):
-
-        try:
-
-            self.controller.start_monitoring()
-
-            self.timer.start(3000)
-            self.monitor_metric.set_value("Ativo")
-            self.monitor_metric.set_detail("Atualização a cada 3 segundos")
-
-            self.log_message("Monitoramento iniciado")
-
-        except Exception as e:
-
-            self.log_message(f"Erro ao iniciar monitoramento: {e}")
+        self.controller.start_monitoring()
+        self.timer.start(3000)
+        self.monitor_metric.set_value("Ativo")
+        self.monitor_metric.set_detail("Atualização a cada 3 segundos")
+        self.log_message("Monitoramento iniciado")
 
     def stop_monitor(self):
-
-        try:
-
-            self.controller.stop_monitoring()
-
-            self.timer.stop()
-            self.monitor_metric.set_value("Parado")
-            self.monitor_metric.set_detail("Monitoramento interrompido")
-
-            self.log_message("Monitoramento parado")
-
-        except Exception as e:
-
-            self.log_message(f"Erro ao parar monitoramento: {e}")
+        self.controller.stop_monitoring()
+        self.timer.stop()
+        self.monitor_metric.set_value("Parado")
+        self.monitor_metric.set_detail("Monitoramento interrompido")
+        self.log_message("Monitoramento parado")
 
     def _update_connections(self):
+        self.connections_list.clear()
+        for connection in self.controller.get_connections():
+            self.connections_list.addItem(str(connection))
 
-        try:
-
-            connections = self.controller.get_connections()
-
-            self.connections_list.clear()
-
-            for c in connections:
-                self.connections_list.addItem(str(c))
-
-        except Exception:
-            pass
-
-    # =====================================================
-    # LOG
-    # =====================================================
-
-    def log_message(self, message: str):
-
+    def log_message(self, message):
         if not message:
             return
-
-        timestamp = datetime.now().strftime("%H:%M:%S")
-
-        text = f"[{timestamp}] {message}"
-
+        text = f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
         self.log_area.append(text)
-
         scrollbar = self.log_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
-        if scrollbar:
-            scrollbar.setValue(scrollbar.maximum())
-
-        print(text)
+    def closeEvent(self, event):
+        self.timer.stop()
+        self.controller.stop_monitoring()
+        if not self.controller.shutdown():
+            self.log_message(
+                "A operação administrativa ainda está finalizando; aguarde para fechar."
+            )
+            event.ignore()
+            return
+        super().closeEvent(event)

@@ -13,16 +13,24 @@ except Exception:
     winreg = None
 
 from .platform_adapter import PlatformAdapter
+from models.firewall_contracts import (
+    FirewallCapability,
+    FirewallOperationResult,
+    OperationStatus,
+    SupportStatus,
+)
 
 
 class WindowsAdapter(PlatformAdapter):
+    platform = "Windows"
+    backend = "windows_firewall"
+
+    def __init__(self):
+        self._firewall_runner = subprocess.run
+        self._firewall_which = shutil.which
+
     def get_os_name(self):
-        import platform
-        system = platform.system()
-        # if on Windows, ensure winreg is available; otherwise just return the platform name
-        if system == "Windows" and winreg is not None:
-            return "Windows"
-        return system
+        return self.platform
 
     # --------------------------------------------------
 
@@ -216,25 +224,115 @@ class WindowsAdapter(PlatformAdapter):
     # --------------------------------------------------
 
     def get_firewall_status(self):
+        result = self.read_status("platform-status")
+        if not result.succeeded:
+            return "unknown"
+        return "active" if result.confirmed_state.get("active") else "inactive"
+
+    def detect_firewall_capability(self, *, which=None, runner=None, **_dependencies):
+        self._firewall_which = which or shutil.which
+        self._firewall_runner = runner or subprocess.run
+        result = self.read_status("capability-probe")
+        return FirewallCapability(
+            platform=self.platform,
+            backend=self.backend,
+            installed=True,
+            active=(
+                result.confirmed_state.get("active")
+                if result.succeeded else None
+            ),
+            readable=result.succeeded,
+            writable=False,
+            requires_privilege=True,
+            support_status=(
+                SupportStatus.READ_ONLY.value
+                if result.succeeded else SupportStatus.UNAVAILABLE.value
+            ),
+            reason=(
+                "Windows Defender Firewall validado em modo somente leitura."
+                if result.succeeded
+                else result.message
+                or "Estado do Windows Defender Firewall indisponível."
+            ),
+        )
+
+    def read_status(self, operation_id="status"):
+        powershell = (
+            self._firewall_which("powershell.exe")
+            or self._firewall_which("powershell")
+        )
+        if not powershell:
+            return FirewallOperationResult(
+                operation_id=operation_id,
+                status=OperationStatus.UNAVAILABLE.value,
+                backend=self.backend,
+                verified=False,
+                error_code="powershell_unavailable",
+                message="PowerShell não está disponível para consultar o Firewall.",
+            )
+        command = [
+            str(powershell),
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-NetFirewallProfile | Select-Object -ExpandProperty Enabled",
+        ]
         try:
-            result = subprocess.run(
-                ["netsh", "advfirewall", "show", "allprofiles"],
+            completed = self._firewall_runner(
+                command,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
+                shell=False,
+                check=False,
             )
-
-            text = result.stdout.upper()
-
-            if "STATE ON" in text:
-                return "active"
-
-            if "STATE OFF" in text:
-                return "inactive"
-        except Exception:
-            pass
-
-        return "unknown"
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return FirewallOperationResult(
+                operation_id=operation_id,
+                status=OperationStatus.EXECUTION_FAILED.value,
+                backend=self.backend,
+                verified=False,
+                error_code="windows_status_failed",
+                message=f"Falha ao consultar o Firewall do Windows: {exc}",
+            )
+        if completed.returncode != 0:
+            return FirewallOperationResult(
+                operation_id=operation_id,
+                status=OperationStatus.EXECUTION_FAILED.value,
+                backend=self.backend,
+                verified=False,
+                exit_code=completed.returncode,
+                stdout=completed.stdout or "",
+                stderr=completed.stderr or "",
+                error_code="windows_status_exit_nonzero",
+                message="O Windows não confirmou o estado do Firewall.",
+            )
+        values = [
+            line.strip().lower()
+            for line in (completed.stdout or "").splitlines()
+            if line.strip()
+        ]
+        if not values or any(value not in {"true", "false"} for value in values):
+            return FirewallOperationResult(
+                operation_id=operation_id,
+                status=OperationStatus.VERIFICATION_FAILED.value,
+                backend=self.backend,
+                verified=False,
+                stdout=completed.stdout or "",
+                error_code="windows_status_unrecognized",
+                message="Resposta do Firewall do Windows não reconhecida.",
+            )
+        active = all(value == "true" for value in values)
+        return FirewallOperationResult(
+            operation_id=operation_id,
+            status=OperationStatus.SUCCESS.value,
+            backend=self.backend,
+            confirmed_state={"active": active, "profiles": len(values)},
+            verified=True,
+            exit_code=completed.returncode,
+            stdout=completed.stdout or "",
+            message="Estado dos perfis do Windows Defender Firewall confirmado.",
+        )
 
     # --------------------------------------------------
     # Usuários do sistema

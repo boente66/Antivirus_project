@@ -17,33 +17,39 @@ class PlatformFactory:
     # Criar adapter
     # --------------------------------------------------
 
+    ADAPTERS = {
+        "Linux": LinuxAdapter,
+        "Windows": WindowsAdapter,
+        "Darwin": MacAdapter,
+    }
+    ALIASES = {"macOS": "Darwin"}
+
     @classmethod
     def create(cls):
-
-        if cls._adapter_instance is not None:
-            return cls._adapter_instance
-
-        system = platform.system()
-
-        if system == "Linux":
-
-            cls._adapter_instance = LinuxAdapter()
-
-        elif system == "Windows":
-
-            cls._adapter_instance = WindowsAdapter()
-
-        elif system == "Darwin":
-
-            cls._adapter_instance = MacAdapter()
-
-        else:
-
-            raise RuntimeError(
-                f"Sistema operacional não suportado: {system}"
-            )
-
+        """Retorna a instância única correspondente ao sistema real."""
+        system = cls.normalize_system_name(platform.system())
+        adapter_class = cls._adapter_class(system)
+        if not isinstance(cls._adapter_instance, adapter_class):
+            cls._adapter_instance = adapter_class()
         return cls._adapter_instance
+
+    @classmethod
+    def create_for(cls, system_name):
+        """Cria adapter explícito sem contaminar o singleton de produção."""
+        system = cls.normalize_system_name(system_name)
+        return cls._adapter_class(system)()
+
+    @classmethod
+    def _adapter_class(cls, system):
+        adapter_class = cls.ADAPTERS.get(system)
+        if adapter_class is None:
+            raise RuntimeError(f"Sistema operacional não suportado: {system}")
+        return adapter_class
+
+    @classmethod
+    def normalize_system_name(cls, system_name):
+        name = str(system_name or "").strip()
+        return cls.ALIASES.get(name, name)
 
     # Backwards-compatible alias expected by other code.
     @classmethod
@@ -60,8 +66,7 @@ class PlatformFactory:
 
     @staticmethod
     def get_os_name():
-
-        return platform.system()
+        return PlatformFactory.normalize_system_name(platform.system())
 
     # --------------------------------------------------
     # Verificar suporte

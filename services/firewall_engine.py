@@ -1,85 +1,63 @@
-import subprocess
+from models.firewall_contracts import FirewallOperation, FirewallOperationRequest
+from services.firewall_service import FirewallService
 
 
 class FirewallEngine:
-    """
-    Executa comandos reais no firewall do sistema.
-    """
+    """Compatibilidade legada delegada ao fluxo auditado e pós-verificado."""
 
-    def __init__(self, engine_type):
-        self.engine_type = engine_type
+    def __init__(self, engine_type, firewall_service=None):
+        self.engine_type = str(engine_type)
+        self.firewall_service = firewall_service or FirewallService()
 
     def _ensure_supported(self):
         if self.engine_type != "ufw":
             raise RuntimeError("Engine de firewall não suportada")
 
-    def _validate_port(self, port):
-        try:
-            port = int(port)
-        except (TypeError, ValueError):
-            raise ValueError("Porta inválida")
+    @staticmethod
+    def _require_success(result):
+        if not result.succeeded:
+            raise RuntimeError(result.message or "Operação de Firewall não confirmada")
+        return result
 
-        if port < 1 or port > 65535:
-            raise ValueError("Porta fora do intervalo permitido")
-
-        return port
-
-    def _run(self, command, timeout=30):
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout
+    def _execute(self, operation, payload=None):
+        self._ensure_supported()
+        request = FirewallOperationRequest.create(
+            operation,
+            payload=payload,
+            reason="Compatibilidade com FirewallEngine.",
         )
+        return self._require_success(self.firewall_service.execute(request))
 
-        if result.returncode != 0:
-            message = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(message or "Comando de firewall falhou")
-
-        return result.stdout.strip()
-
-    # ----------------------------------------
-    # STATUS
-    # ----------------------------------------
     def status(self):
-        self._ensure_supported()
+        result = self._execute(FirewallOperation.GET_STATUS)
+        return "active" if result.confirmed_state.get("active") else "inactive"
 
-        return self._run(["ufw", "status"], timeout=10)
-
-    # ----------------------------------------
-    # ATIVAR
-    # ----------------------------------------
     def enable(self):
-        self._ensure_supported()
-        self._run(["pkexec", "ufw", "--force", "enable"])
+        self._execute(FirewallOperation.ENABLE)
+        return "Firewall ativado e confirmado"
 
-        return "Firewall ativado"
-
-    # ----------------------------------------
-    # DESATIVAR
-    # ----------------------------------------
     def disable(self):
-        self._ensure_supported()
-        self._run(["pkexec", "ufw", "disable"])
+        self._execute(FirewallOperation.DISABLE)
+        return "Firewall desativado e confirmado"
 
-        return "Firewall desativado"
-
-    # ----------------------------------------
-    # PERMITIR PORTA
-    # ----------------------------------------
     def allow_port(self, port):
-        self._ensure_supported()
-        port = self._validate_port(port)
-        self._run(["pkexec", "ufw", "allow", str(port)])
+        self._port_rule(port, "allow")
+        return f"Porta {int(port)} liberada e confirmada"
 
-        return f"Porta {port} liberada"
-
-    # ----------------------------------------
-    # BLOQUEAR PORTA
-    # ----------------------------------------
     def block_port(self, port):
-        self._ensure_supported()
-        port = self._validate_port(port)
-        self._run(["pkexec", "ufw", "deny", str(port)])
+        self._port_rule(port, "deny")
+        return f"Porta {int(port)} bloqueada e confirmada"
 
-        return f"Porta {port} bloqueada"
+    def _port_rule(self, port, action):
+        return self._execute(
+            FirewallOperation.ADD_RULE,
+            {
+                "name": f"Compatibilidade {action} porta {port}",
+                "port": port,
+                "protocol": "tcp",
+                "action": action,
+                "direction": "in",
+                "source": "any",
+                "destination": "any",
+            },
+        )

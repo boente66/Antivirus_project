@@ -33,6 +33,12 @@ class WiFiView(QWidget):
         title.setObjectName("SectionTitle")
         layout.addWidget(title)
 
+        notice = QLabel(
+            "Regras por rede Wi-Fi estão em modo somente leitura nesta etapa."
+        )
+        notice.setWordWrap(True)
+        layout.addWidget(notice)
+
         # --------------------------------------
         # Lista de redes
         # --------------------------------------
@@ -73,7 +79,7 @@ class WiFiView(QWidget):
         # Botões principais
         # --------------------------------------
 
-        allow_button = self.create_button(
+        self.allow_button = self.create_button(
             "Permitir Wi-Fi",
             "resources/icons/shield.svg",
             "#27AE60",
@@ -81,7 +87,7 @@ class WiFiView(QWidget):
             self.add_wifi
         )
 
-        block_button = self.create_button(
+        self.block_button = self.create_button(
             "Bloquear Wi-Fi",
             "resources/icons/firewall.svg",
             "#E74C3C",
@@ -89,7 +95,7 @@ class WiFiView(QWidget):
             self.block_wifi
         )
 
-        remove_button = self.create_button(
+        self.remove_button = self.create_button(
             "Remover Rede",
             "resources/icons/uninstall.svg",
             "#7F8C8D",
@@ -98,9 +104,14 @@ class WiFiView(QWidget):
         )
 
         layout.addWidget(scan_button)
-        layout.addWidget(allow_button)
-        layout.addWidget(block_button)
-        layout.addWidget(remove_button)
+        layout.addWidget(self.allow_button)
+        layout.addWidget(self.block_button)
+        layout.addWidget(self.remove_button)
+
+        self.wifi_input.setEnabled(False)
+        for button in (self.allow_button, self.block_button, self.remove_button):
+            button.setEnabled(False)
+            button.setToolTip("Escrita por Wi-Fi não suportada na Fase 2A.")
 
         # --------------------------------------
 

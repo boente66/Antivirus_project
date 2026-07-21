@@ -1,33 +1,47 @@
-from models.firewall_rule import FirewallRule
+from models.firewall_contracts import FirewallOperation, FirewallOperationRequest
+from services.firewall_service import FirewallService
 
 
 class FirewallRuleService:
-    """
-    Gerencia regras dentro do aplicativo.
-    """
+    """Fachada legada sem estado próprio; a fonte única é FirewallService."""
 
-    def __init__(self):
+    def __init__(self, firewall_service=None):
+        self.firewall_service = firewall_service or FirewallService()
 
-        self.rules = []
+    @property
+    def rules(self):
+        return list(self.firewall_service.snapshot_rules())
 
-    # ----------------------------------------
     def add_rule(self, name, port, protocol, action):
+        request = FirewallOperationRequest.create(
+            FirewallOperation.ADD_RULE,
+            payload={
+                "name": name,
+                "port": port,
+                "protocol": protocol,
+                "action": "deny" if action == "block" else action,
+                "direction": "in",
+                "source": "any",
+                "destination": "any",
+            },
+            reason="Compatibilidade com FirewallRuleService.",
+        )
+        return self.firewall_service.execute(request)
 
-        rule = FirewallRule(name, port, protocol, action)
+    def remove_rule(self, rule_id, expected_version=None):
+        if expected_version is None:
+            raise ValueError(
+                "expected_version é obrigatório; remoção aproximada por nome foi desabilitada."
+            )
+        request = FirewallOperationRequest.create(
+            FirewallOperation.DELETE_RULE,
+            rule_id=rule_id,
+            expected_version=expected_version,
+            reason="Compatibilidade com FirewallRuleService.",
+        )
+        return self.firewall_service.execute(request)
 
-        self.rules.append(rule)
-
-        return rule
-
-    # ----------------------------------------
-    def remove_rule(self, name):
-
-        self.rules = [
-            r for r in self.rules
-            if r.name != name
-        ]
-
-    # ----------------------------------------
     def list_rules(self):
-
-        return self.rules
+        request = FirewallOperationRequest.create(FirewallOperation.LIST_RULES)
+        result = self.firewall_service.execute(request)
+        return list(result.confirmed_state or ()) if result.succeeded else []

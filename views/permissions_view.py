@@ -29,6 +29,12 @@ class PermissionsView(QWidget):
         title.setObjectName("SectionTitle")
         layout.addWidget(title)
 
+        notice = QLabel(
+            "Regras por aplicativo estão em modo somente leitura nesta etapa."
+        )
+        notice.setWordWrap(True)
+        layout.addWidget(notice)
+
         # -------------------------
         # Lista de aplicativos
         # -------------------------
@@ -54,7 +60,7 @@ class PermissionsView(QWidget):
         # Botões
         # -------------------------
 
-        allow_button = self.create_button(
+        self.allow_button = self.create_button(
             "Permitir Aplicativo",
             "resources/icons/shield.svg",
             "#27AE60",
@@ -62,7 +68,7 @@ class PermissionsView(QWidget):
             self.allow_permission
         )
 
-        block_button = self.create_button(
+        self.block_button = self.create_button(
             "Bloquear Aplicativo",
             "resources/icons/firewall.svg",
             "#E74C3C",
@@ -70,7 +76,7 @@ class PermissionsView(QWidget):
             self.block_permission
         )
 
-        remove_button = self.create_button(
+        self.remove_button = self.create_button(
             "Remover Aplicativo",
             "resources/icons/uninstall.svg",
             "#7F8C8D",
@@ -78,9 +84,14 @@ class PermissionsView(QWidget):
             self.remove_permission
         )
 
-        layout.addWidget(allow_button)
-        layout.addWidget(block_button)
-        layout.addWidget(remove_button)
+        layout.addWidget(self.allow_button)
+        layout.addWidget(self.block_button)
+        layout.addWidget(self.remove_button)
+
+        self.app_input.setEnabled(False)
+        for button in (self.allow_button, self.block_button, self.remove_button):
+            button.setEnabled(False)
+            button.setToolTip("Escrita por aplicativo não suportada na Fase 2A.")
 
         # -------------------------
 

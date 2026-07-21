@@ -1,346 +1,276 @@
 from datetime import datetime
 
-from models.firewall_rule import FirewallRule
-from models.permission_model import Permission
-from models.wifi_model import WiFi
+from PyQt5.QtCore import QObject, pyqtSignal
 
+from models.firewall_contracts import (
+    FirewallOperation,
+    FirewallOperationRequest,
+    FirewallOperationResult,
+    OperationStatus,
+)
 from services.firewall_service import FirewallService
-from core.platform.platform_factory import PlatformFactory
+from workers.firewall_worker import FirewallWorker
 
 
-class FirewallController:
-    """
-    Controller do firewall.
-
-    Responsável por:
-    - coordenar regras
-    - permissões de aplicativos
-    - redes Wi-Fi
-    - comunicação com FirewallService
-    """
+class FirewallController(QObject):
+    capability_changed = pyqtSignal(object)
+    rules_updated = pyqtSignal(list)
+    status_changed = pyqtSignal(object)
+    operation_started = pyqtSignal(str, str)
+    awaiting_authorization = pyqtSignal(str, str)
+    operation_progress = pyqtSignal(str, int)
+    operation_completed = pyqtSignal(object)
+    operation_failed = pyqtSignal(object)
+    log_updated = pyqtSignal(str)
 
     MAX_LOGS = 500
 
-    # =====================================================
-    # INIT
-    # =====================================================
-
-    def __init__(self):
-
-        self.firewall_service = FirewallService()
-
-        # adapter multiplataforma
-        self.adapter = PlatformFactory.create()
-
-        self.rules = []
+    def __init__(self, service=None, worker_factory=None, parent=None):
+        super().__init__(parent)
+        self.firewall_service = service or FirewallService()
+        self.worker_factory = worker_factory or FirewallWorker
+        self._workers = {}
+        self._active_mutation = None
+        self._active_rules = set()
         self.permissions = []
         self.wifi_networks = []
         self.logs = []
 
-    # =====================================================
-    # PERMISSÕES DE APLICATIVOS
-    # =====================================================
+    @property
+    def capability(self):
+        return self.firewall_service.capability
 
-    def add_permission(self, app_name, allow_traffic):
+    def refresh_capability(self):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.DETECT_CAPABILITY,
+            reason="Atualizar capacidade do Firewall.",
+        ))
 
-        if not app_name:
+    def refresh_status(self):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.GET_STATUS,
+            reason="Atualizar estado real do Firewall.",
+        ))
+
+    def refresh_rules(self):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.LIST_RULES,
+            reason="Atualizar regras confirmadas pelo backend.",
+        ))
+
+    def activate_firewall(self):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.ENABLE,
+            reason="Ativar o Firewall UFW.",
+        ))
+
+    def deactivate_firewall(self):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.DISABLE,
+            reason="Desativar o Firewall UFW.",
+        ))
+
+    def add_rule(self, name=None, port=None, protocol="tcp", action="deny", payload=None):
+        data = dict(payload or {})
+        if not data:
+            data = {
+                "name": name,
+                "port": port,
+                "protocol": protocol,
+                "action": "deny" if action == "block" else action,
+                "direction": "in",
+                "source": "any",
+                "destination": "any",
+            }
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.ADD_RULE,
+            payload=data,
+            reason=f"Criar regra {data.get('name') or ''}".strip(),
+        ))
+
+    def remove_rule(self, rule_id, expected_version=None):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.DELETE_RULE,
+            rule_id=rule_id,
+            expected_version=expected_version,
+            reason="Remover uma regra UFW identificada.",
+        ))
+
+    def list_rules(self):
+        return list(self.firewall_service.snapshot_rules())
+
+    def get_firewall_status(self):
+        active = self.capability.active
+        if active is True:
+            return "Ativado"
+        if active is False:
+            return "Desativado"
+        return self.capability.reason or "Status desconhecido"
+
+    def _start(self, request):
+        is_mutation = request.operation in self.firewall_service.MUTATIONS
+        if is_mutation and self._active_mutation is not None:
+            self._emit_busy(request)
+            return None
+        if request.rule_id and request.rule_id in self._active_rules:
+            self._emit_busy(request)
+            return None
+
+        worker = self.worker_factory(self.firewall_service, request, self)
+        operation_id = request.operation_id
+        self._workers[operation_id] = worker
+        if is_mutation:
+            self._active_mutation = operation_id
+        if request.rule_id:
+            self._active_rules.add(request.rule_id)
+
+        worker.operation_started.connect(self._forward_started)
+        worker.awaiting_authorization.connect(self.awaiting_authorization.emit)
+        worker.progress.connect(self.operation_progress.emit)
+        worker.completed.connect(
+            lambda result, current=worker: self._handle_result(result, current, True)
+        )
+        worker.failed.connect(
+            lambda result, current=worker: self._handle_result(result, current, False)
+        )
+        worker.finished.connect(
+            lambda op_id=operation_id, rule_id=request.rule_id, mutation=is_mutation:
+            self._cleanup_worker(op_id, rule_id, mutation)
+        )
+        worker.start()
+        return operation_id
+
+    def _forward_started(self, operation_id, operation):
+        if operation_id not in self._workers:
             return
+        self.operation_started.emit(operation_id, operation)
+        self.log_action(f"Operação iniciada: {operation}")
 
-        app_name = app_name.strip()
+    def _handle_result(self, result, worker, success):
+        current = self._workers.get(result.operation_id)
+        if current is not worker:
+            return
+        # A operação de sistema terminou antes de o sinal chegar à View;
+        # libera os guards sem aguardar a destruição posterior da QThread.
+        if self._active_mutation == result.operation_id:
+            self._active_mutation = None
+        request = getattr(worker, "request", None)
+        if request and request.rule_id:
+            self._active_rules.discard(request.rule_id)
+        operation = getattr(getattr(worker, "request", None), "operation", None)
+        if isinstance(result.confirmed_state, tuple):
+            self.rules_updated.emit(list(result.confirmed_state))
+        elif operation in {
+            FirewallOperation.ADD_RULE.value,
+            FirewallOperation.DELETE_RULE.value,
+        }:
+            self.rules_updated.emit(list(self.firewall_service.snapshot_rules()))
 
-        permission = next(
-            (p for p in self.permissions
-             if p.app_name.lower() == app_name.lower()),
-            None
-        )
+        if operation == FirewallOperation.DETECT_CAPABILITY.value:
+            self.capability_changed.emit(self.capability)
+        elif operation in {
+            FirewallOperation.GET_STATUS.value,
+            FirewallOperation.ENABLE.value,
+            FirewallOperation.DISABLE.value,
+        }:
+            self.capability_changed.emit(self.capability)
 
-        if permission:
-            permission.allow_traffic = allow_traffic
-
+        if isinstance(result.confirmed_state, dict) and "active" in result.confirmed_state:
+            self.status_changed.emit(result)
+        self.log_action(result.message)
+        if success:
+            self.operation_completed.emit(result)
         else:
-            self.permissions.append(
-                Permission(app_name, allow_traffic)
-            )
+            self.operation_failed.emit(result)
 
-        self.log_action(
-            f"Permissão {'permitida' if allow_traffic else 'bloqueada'} para {app_name}"
+    def _cleanup_worker(self, operation_id, rule_id, mutation):
+        worker = self._workers.pop(operation_id, None)
+        if worker:
+            worker.deleteLater()
+        if mutation and self._active_mutation == operation_id:
+            self._active_mutation = None
+        if rule_id:
+            self._active_rules.discard(rule_id)
+
+    def _emit_busy(self, request):
+        result = FirewallOperationResult(
+            operation_id=request.operation_id,
+            status=OperationStatus.BUSY.value,
+            backend=self.capability.backend,
+            verified=False,
+            error_code="mutation_in_progress",
+            message="Outra alteração do Firewall está em andamento.",
         )
+        self.operation_failed.emit(result)
+
+    def shutdown(self, timeout_ms=3000):
+        workers = list(self._workers.values())
+        for worker in workers:
+            worker.cancel()
+        for worker in workers:
+            if worker.isRunning():
+                worker.wait(max(0, int(timeout_ms)))
+        return not any(worker.isRunning() for worker in workers)
+
+    # Aplicativos e Wi-Fi ainda não possuem escrita validada no UFW.
+    def add_permission(self, app_name, allow_traffic):
+        return self._unsupported_local("Regras por aplicativo ainda não são suportadas.")
 
     def remove_permission(self, app_name):
-
-        if not app_name:
-            return
-
-        self.permissions = [
-            p for p in self.permissions
-            if p.app_name.lower() != app_name.lower()
-        ]
-
-        self.log_action(f"Permissão removida para {app_name}")
+        return self._unsupported_local("Regras por aplicativo ainda não são suportadas.")
 
     def get_permissions(self):
-
-        return [
-            f"{p.app_name} - {'Permitido' if p.allow_traffic else 'Bloqueado'}"
-            for p in self.permissions
-        ]
+        return []
 
     def notify_impact(self, app_name):
-
-        permission = next(
-            (p for p in self.permissions
-             if p.app_name.lower() == app_name.lower()),
-            None
-        )
-
-        if permission and not permission.allow_traffic:
-            return f"⚠ Aviso: Interromper {app_name} pode causar lentidão!"
-
-        return ""
-
-    # =====================================================
-    # REDES WIFI
-    # =====================================================
+        return "Regras por aplicativo estão desabilitadas nesta etapa."
 
     def scan_wifi_networks(self):
-        """
-        Escaneia redes Wi-Fi usando o adapter do sistema.
-        """
-
         try:
-            return self.adapter.scan_wifi_networks()
+            adapter = getattr(self.firewall_service, "platform_adapter", None)
+            return adapter.scan_wifi_networks() if adapter else []
         except Exception:
             return []
 
     def add_wifi_network(self, ssid, allow_traffic):
-
-        if not ssid:
-            return
-
-        ssid = ssid.strip()
-
-        wifi = next(
-            (w for w in self.wifi_networks
-             if w.ssid.lower() == ssid.lower()),
-            None
-        )
-
-        if wifi:
-            wifi.allow_traffic = allow_traffic
-
-        else:
-            self.wifi_networks.append(
-                WiFi(ssid, allow_traffic)
-            )
-
-        self.log_action(
-            f"Wi-Fi {'permitido' if allow_traffic else 'bloqueado'}: {ssid}"
-        )
+        return self._unsupported_local("Regras por rede Wi-Fi ainda não são suportadas.")
 
     def remove_wifi_network(self, ssid):
-
-        if not ssid:
-            return
-
-        self.wifi_networks = [
-            w for w in self.wifi_networks
-            if w.ssid.lower() != ssid.lower()
-        ]
-
-        self.log_action(f"Wi-Fi removido: {ssid}")
+        return self._unsupported_local("Regras por rede Wi-Fi ainda não são suportadas.")
 
     def get_wifi_networks(self):
-
-        return [
-            f"{w.ssid} - {'Permitido' if w.allow_traffic else 'Bloqueado'}"
-            for w in self.wifi_networks
-        ]
-
-    # =====================================================
-    # STATUS DO FIREWALL
-    # =====================================================
-
-    def get_firewall_status(self):
-
-        try:
-
-            status = self.firewall_service.get_status()
-
-            if not status:
-                return "Status desconhecido"
-
-            status_lower = status.lower()
-
-            if "active" in status_lower or "enabled" in status_lower:
-                return "Ativado"
-
-            if "inactive" in status_lower or "disabled" in status_lower:
-                return "Desativado"
-
-            return status
-
-        except Exception as e:
-
-            return f"Erro ao verificar status do firewall: {e}"
-
-    # =====================================================
-    # REGRAS
-    # =====================================================
-
-    def add_rule(self, name, port, protocol, action):
-
-        if not name:
-            return "Nome da regra inválido"
-
-        try:
-            port = int(port)
-        except (TypeError, ValueError):
-            return "Porta inválida"
-
-        if port < 1 or port > 65535:
-            return "Porta fora do intervalo permitido"
-
-        action = str(action).lower()
-
-        if action not in ("allow", "block", "deny"):
-            return "Ação de firewall inválida"
-
-        existing_rule = next(
-            (r for r in self.rules if r.name.lower() == name.lower()),
-            None
-        )
-
-        if existing_rule:
-            return f"Regra '{name}' já existe"
-
-        try:
-
-            if action == "allow":
-                message = self.firewall_service.allow_port(port)
-
-            elif action in ("block", "deny"):
-                message = self.firewall_service.block_port(port)
-
-        except Exception as e:
-            return f"Erro ao aplicar regra: {e}"
-
-        rule = FirewallRule(name, port, protocol, action)
-
-        self.rules.append(rule)
-
-        self.log_action(
-            f"Regra adicionada: {name} ({action} - Porta {port})"
-        )
-
-        return message
-
-    def remove_rule(self, name):
-
-        rule = next(
-            (r for r in self.rules if r.name.lower() == name.lower()),
-            None
-        )
-
-        if rule:
-
-            self.rules.remove(rule)
-
-            try:
-                self.firewall_service.remove_rule(name)
-            except Exception:
-                pass
-
-            self.log_action(f"Regra removida: {name}")
-
-            return f"✅ Regra '{name}' removida com sucesso!"
-
-        return f"⚠ Regra '{name}' não encontrada"
-
-    def list_rules(self):
-
-        if not self.rules:
-            return ["Nenhuma regra ativa."]
-
-        return [str(r) for r in self.rules]
-
-    # =====================================================
-    # CONTROLE DO FIREWALL
-    # =====================================================
-
-    def activate_firewall(self):
-
-        try:
-
-            message = self.firewall_service.activate()
-
-            self.log_action("Firewall ativado")
-
-            return f"✅ {message}"
-
-        except Exception as e:
-
-            return f"❌ Erro ao ativar firewall: {e}"
-
-    def deactivate_firewall(self):
-
-        try:
-
-            message = self.firewall_service.deactivate()
-
-            self.log_action("Firewall desativado")
-
-            return f"✅ {message}"
-
-        except Exception as e:
-
-            return f"❌ Erro ao desativar firewall: {e}"
-
-    # =====================================================
-    # MONITORAMENTO DE REDE
-    # =====================================================
+        return []
 
     def start_monitoring(self):
-
-        try:
-
-            self.firewall_service.start_monitoring()
-
-            self.log_action("Monitoramento de rede iniciado")
-
-        except Exception:
-            pass
+        self.firewall_service.monitor_service.start() if hasattr(self.firewall_service, "monitor_service") else None
 
     def stop_monitoring(self):
-
-        try:
-
-            self.firewall_service.stop_monitoring()
-
-            self.log_action("Monitoramento de rede parado")
-
-        except Exception:
-            pass
+        self.firewall_service.monitor_service.stop() if hasattr(self.firewall_service, "monitor_service") else None
 
     def get_connections(self):
+        monitor = getattr(self.firewall_service, "monitor_service", None)
+        return monitor.get_connections() if monitor else []
 
-        try:
-            return self.firewall_service.get_connections()
-        except Exception:
-            return []
-
-    # =====================================================
-    # LOG
-    # =====================================================
+    def _unsupported_local(self, message):
+        result = FirewallOperationResult(
+            operation_id=f"local-unsupported-{datetime.now().timestamp()}",
+            status=OperationStatus.UNSUPPORTED.value,
+            backend=self.capability.backend,
+            verified=False,
+            error_code="unsupported",
+            message=message,
+        )
+        self.operation_failed.emit(result)
+        return result
 
     def log_action(self, action):
-
-        timestamp = datetime.now().strftime("%H:%M:%S")
-
-        self.logs.append(f"[{timestamp}] {action}")
-
+        if not action:
+            return
+        entry = f"[{datetime.now().strftime('%H:%M:%S')}] {action}"
+        self.logs.append(entry)
         if len(self.logs) > self.MAX_LOGS:
             self.logs.pop(0)
+        self.log_updated.emit(entry)
 
     def get_logs(self):
-
         return list(self.logs)

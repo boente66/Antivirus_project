@@ -113,17 +113,41 @@ class Database:
             details TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS firewall_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            system_user TEXT,
+            event_type TEXT NOT NULL,
+            operation TEXT,
+            backend TEXT,
+            rule_data TEXT,
+            requested_state TEXT,
+            confirmed_state TEXT,
+            result TEXT,
+            exit_code INTEGER,
+            error_code TEXT,
+            message TEXT,
+            action_origin TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_quarantine_date
             ON quarantine(date DESC);
 
         CREATE INDEX IF NOT EXISTS idx_clean_history_timestamp
             ON clean_history(timestamp DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_firewall_audit_operation
+            ON firewall_audit(operation_id, timestamp);
+
+        CREATE INDEX IF NOT EXISTS idx_firewall_audit_timestamp
+            ON firewall_audit(timestamp DESC);
         """)
 
         self._migrate_scan_schema(conn)
         conn.commit()
 
-        self._set_schema_version(conn, 2)
+        self._set_schema_version(conn, 3)
 
     def _migrate_scan_schema(self, conn):
         """Migração incremental e idempotente do histórico de scans."""
@@ -192,8 +216,10 @@ class Database:
         }
 
     def _set_schema_version(self, conn, version):
-        conn.execute(f"PRAGMA user_version = {int(version)};")
-        conn.commit()
+        current = int(conn.execute("PRAGMA user_version;").fetchone()[0])
+        if current < int(version):
+            conn.execute(f"PRAGMA user_version = {int(version)};")
+            conn.commit()
 
     
     # --------------------------------------------------------------
