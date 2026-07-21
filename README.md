@@ -13,10 +13,38 @@ As estruturas de dados utilizadas incluem listas para armazenamento de processos
 O sistema utiliza processamento assíncrono com QThread para evitar bloqueios na interface gráfica, garantindo uma experiência fluida ao usuário.
 3. Guia do Usuário
 3.1 Instalação do ClamAV:
-Linux: sudo apt install clamav clamav-daemon
+
+**O ClamAV é o mecanismo de detecção do projeto e é indispensável para que os
+escaneamentos antimalware funcionem.** A interface pode iniciar sem o daemon,
+mas os resultados de scan não devem ser considerados válidos enquanto o
+`clamav-daemon` não estiver ativo e a base de assinaturas não estiver
+atualizada.
+
+Linux (Debian/Ubuntu):
+
+```bash
+sudo apt update
+sudo apt install clamav clamav-daemon clamav-freshclam
+sudo systemctl stop clamav-freshclam
+sudo freshclam
+sudo systemctl enable --now clamav-daemon clamav-freshclam
+```
+
+Verifique antes do primeiro scan:
+
+```bash
+systemctl is-active clamav-daemon
+systemctl is-active clamav-freshclam
+clamdscan --version
+```
+
 Windows: instalar via pacote oficial ou WSL
 macOS: brew install clamav
-Após a instalação, é necessário iniciar o serviço e atualizar a base de dados de vírus utilizando o comando freshclam.
+Após a instalação, é necessário manter o serviço iniciado e atualizar
+periodicamente a base de assinaturas. Em algumas distribuições, o
+`clamav-freshclam` gerencia essa atualização automaticamente. Se precisar
+forçar uma atualização manual, pare temporariamente o serviço como mostrado
+acima para evitar dois processos atualizando a mesma base.
 3.2 Verificação de arquivos:
 O usuário pode executar uma verificação inteligente ou personalizada. A verificação inteligente analisa diretórios comuns como Downloads e Desktop, enquanto a personalizada permite selecionar qualquer diretório.
 3.3 Firewall:

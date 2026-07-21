@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Antivírus Project (Teste)
+Comment=Interface de testes do antivírus para Linux
+Exec=antivirus-project
+Icon=antivirus-project
+Terminal=false
+Categories=Utility;Security;
+Keywords=antivirus;clamav;firewall;security;
+StartupNotify=true
