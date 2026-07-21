@@ -5,6 +5,11 @@
 O software antivírus multiplataforma foi projetado com o objetivo de fornecer proteção contra ameaças digitais, aliado a ferramentas de otimização de sistema. O sistema é voltado para usuários domésticos e técnicos que necessitam de controle detalhado sobre segurança, desempenho e análise do ambiente computacional.
 O principal diferencial do software está na sua capacidade de adaptação entre sistemas operacionais distintos, utilizando uma arquitetura modular baseada em adaptação de plataforma. O sistema foi desenvolvido para operar em Linux, Windows e macOS, respeitando as particularidades de cada ambiente.
 O software atende a usuários que desejam: proteção contra malware, análise de arquivos, gerenciamento de firewall, monitoramento de atividades suspeitas e otimização de recursos do sistema.
+
+## Interface
+
+![Painel de status do Antivírus](docs/screenshots/status-dashboard.png)
+
 2. Arquitetura do Sistema
 O sistema foi desenvolvido utilizando a arquitetura MVC (Model-View-Controller), complementada com camadas de Services e Workers para garantir organização, escalabilidade e desempenho.
 A separação em camadas permite que cada componente tenha uma responsabilidade bem definida. As Views são responsáveis pela interface gráfica, os Controllers coordenam a lógica de interação, os Services implementam as regras de negócio e os Workers executam tarefas pesadas em segundo plano.
