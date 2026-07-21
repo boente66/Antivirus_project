@@ -16,6 +16,7 @@ class FirewallValidationService:
     SUPPORTED_ACTIONS = {"allow", "deny"}
     SUPPORTED_DIRECTIONS = {"in", "out"}
     SUPPORTED_PROTOCOLS = {"tcp", "udp"}
+    SAFE_APPLICATION = re.compile(r"^[\w .()+@_-]{1,80}$", re.UNICODE)
 
     def normalize_rule(self, payload, backend="ufw", platform="Linux"):
         payload = dict(payload or {})
@@ -26,6 +27,27 @@ class FirewallValidationService:
             "direction",
             self.SUPPORTED_DIRECTIONS,
         )
+        application = self._application(payload.get("application"))
+        if application:
+            return FirewallRule(
+                name=name,
+                protocol="any",
+                action=action,
+                backend=backend,
+                platform=platform,
+                direction=direction,
+                source="any",
+                destination="any",
+                port_start=None,
+                port_end=None,
+                application=application,
+                comment=self._safe_text(
+                    payload.get("comment", ""), "comment", required=False
+                ),
+                origin=str(payload.get("origin") or "user").lower(),
+                protected=bool(payload.get("protected", False)),
+                editable=bool(payload.get("editable", True)),
+            )
         protocol = self._choice(
             payload.get("protocol"),
             "protocol",
@@ -36,12 +58,6 @@ class FirewallValidationService:
         destination = self._network(
             payload.get("destination", "any"), "destination"
         )
-        application = payload.get("application")
-        if application not in (None, ""):
-            raise FirewallValidationError(
-                "application",
-                "Regras por aplicação ainda não são suportadas pelo adapter UFW.",
-            )
         comment = self._safe_text(
             payload.get("comment", ""), "comment", required=False
         )
@@ -63,6 +79,17 @@ class FirewallValidationService:
             protected=bool(payload.get("protected", False)),
             editable=bool(payload.get("editable", True)),
         )
+
+    def _application(self, value):
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if not self.SAFE_APPLICATION.fullmatch(text):
+            raise FirewallValidationError(
+                "application",
+                "Perfil de aplicação UFW inválido ou não permitido.",
+            )
+        return text
 
     def _ports(self, payload):
         start = payload.get("port_start", payload.get("port"))

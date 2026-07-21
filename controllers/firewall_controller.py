@@ -15,6 +15,8 @@ from workers.firewall_worker import FirewallWorker
 class FirewallController(QObject):
     capability_changed = pyqtSignal(object)
     rules_updated = pyqtSignal(list)
+    applications_updated = pyqtSignal(list)
+    diagnostics_updated = pyqtSignal(object)
     status_changed = pyqtSignal(object)
     operation_started = pyqtSignal(str, str)
     awaiting_authorization = pyqtSignal(str, str)
@@ -56,6 +58,18 @@ class FirewallController(QObject):
         return self._start(FirewallOperationRequest.create(
             FirewallOperation.LIST_RULES,
             reason="Atualizar regras confirmadas pelo backend.",
+        ))
+
+    def refresh_applications(self):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.LIST_APPLICATIONS,
+            reason="Listar perfis de aplicação registrados no UFW.",
+        ))
+
+    def diagnose_firewall(self):
+        return self._start(FirewallOperationRequest.create(
+            FirewallOperation.DIAGNOSE,
+            reason="Diagnosticar componentes e serviço do Firewall.",
         ))
 
     def activate_firewall(self):
@@ -158,7 +172,9 @@ class FirewallController(QObject):
         if request and request.rule_id:
             self._active_rules.discard(request.rule_id)
         operation = getattr(getattr(worker, "request", None), "operation", None)
-        if isinstance(result.confirmed_state, tuple):
+        if operation == FirewallOperation.LIST_APPLICATIONS.value:
+            self.applications_updated.emit(list(result.confirmed_state or ()))
+        elif isinstance(result.confirmed_state, tuple):
             self.rules_updated.emit(list(result.confirmed_state))
         elif operation in {
             FirewallOperation.ADD_RULE.value,
@@ -168,6 +184,8 @@ class FirewallController(QObject):
 
         if operation == FirewallOperation.DETECT_CAPABILITY.value:
             self.capability_changed.emit(self.capability)
+        elif operation == FirewallOperation.DIAGNOSE.value:
+            self.diagnostics_updated.emit(result)
         elif operation in {
             FirewallOperation.GET_STATUS.value,
             FirewallOperation.ENABLE.value,
@@ -212,23 +230,38 @@ class FirewallController(QObject):
                 worker.wait(max(0, int(timeout_ms)))
         return not any(worker.isRunning() for worker in workers)
 
-    # Aplicativos e Wi-Fi ainda não possuem escrita validada no UFW.
     def add_permission(self, app_name, allow_traffic):
-        return self._unsupported_local("Regras por aplicativo ainda não são suportadas.")
+        return self.add_rule(payload={
+            "name": f"Aplicação {app_name}",
+            "application": app_name,
+            "action": "allow" if allow_traffic else "deny",
+            "direction": "in",
+            "comment": "Regra de perfil criada pelo Antivírus",
+        })
 
-    def remove_permission(self, app_name):
-        return self._unsupported_local("Regras por aplicativo ainda não são suportadas.")
+    def remove_permission(self, profile):
+        rule_id = getattr(profile, "rule_id", None)
+        version = getattr(profile, "rule_version", None)
+        if not rule_id or version is None or not getattr(profile, "managed", False):
+            return self._unsupported_local(
+                "Somente regras de aplicação criadas pelo Antivírus podem ser removidas."
+            )
+        return self.remove_rule(rule_id, version)
 
     def get_permissions(self):
-        return []
+        return list(self.firewall_service.snapshot_applications())
 
     def notify_impact(self, app_name):
-        return "Regras por aplicativo estão desabilitadas nesta etapa."
+        return (
+            f"O bloqueio do perfil '{app_name}' afeta as portas publicadas pelo UFW. "
+            "Ele não encerra o programa nem implementa bloqueio por processo."
+        )
 
     def scan_wifi_networks(self):
         try:
             adapter = getattr(self.firewall_service, "platform_adapter", None)
-            return adapter.scan_wifi_networks() if adapter else []
+            networks = adapter.scan_wifi_networks() if adapter else []
+            return [dict(network) for network in networks if isinstance(network, dict)]
         except Exception:
             return []
 

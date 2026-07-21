@@ -16,6 +16,31 @@ produção.
 - Dados e logs do usuário não são incluídos no pacote.
 - A remoção do pacote preserva dados do usuário deliberadamente.
 
+## Administração segura do Firewall
+
+No Linux, o `LinuxAdapter` é a única implementação autorizada a traduzir as
+operações da interface para comandos UFW. O aplicativo permanece como usuário
+comum. Para consultar o estado protegido, ativar, desativar, criar ou remover
+regras, o fluxo é:
+
+1. a interface informa a operação e solicita consentimento quando há escrita;
+2. o Service valida e audita a intenção;
+3. o Worker executa em segundo plano;
+4. o adapter solicita autorização ao Polkit por `pkexec`;
+5. o estado é relido e a alteração somente é apresentada como concluída após
+   confirmação pelo UFW.
+
+A senha é coletada pelo agente de autenticação do sistema operacional e nunca
+pela aplicação. Não execute `antivirus-project` com `sudo`.
+
+A aba **Aplicativos** mostra perfis de rede definidos pelo UFW, e não todos os
+executáveis instalados. Um perfil controla as portas declaradas em
+`/etc/ufw/applications.d`; ele não encerra nem bloqueia um processo diretamente.
+Regras externas são protegidas contra remoção acidental.
+
+O botão de diagnóstico verifica UFW, pkexec/Polkit e a integração com
+`ufw.service` sem alterar regras. Wi‑Fi permanece somente leitura nesta versão.
+
 ## Sistemas indicados
 
 Construa o pacote na mesma distribuição e arquitetura em que ele será

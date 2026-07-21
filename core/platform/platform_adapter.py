@@ -118,6 +118,30 @@ class PlatformAdapter(abc.ABC):
             message="Listagem de regras não suportada neste sistema.",
         ), []
 
+    def list_firewall_applications(self, operation_id="list_applications"):
+        from models.firewall_contracts import FirewallOperationResult, OperationStatus
+
+        return FirewallOperationResult(
+            operation_id=operation_id,
+            status=OperationStatus.UNSUPPORTED.value,
+            backend=self.backend,
+            verified=False,
+            error_code="application_listing_unsupported",
+            message="Perfis de aplicação não são suportados neste sistema.",
+        ), []
+
+    def diagnose_firewall(self, operation_id="diagnose"):
+        from models.firewall_contracts import FirewallOperationResult, OperationStatus
+
+        return FirewallOperationResult(
+            operation_id=operation_id,
+            status=OperationStatus.UNSUPPORTED.value,
+            backend=self.backend,
+            verified=False,
+            error_code="diagnostic_unsupported",
+            message="Diagnóstico do Firewall não suportado neste sistema.",
+        )
+
     def detect_firewall_capability(self, **_dependencies):
         """Contrato seguro padrão para plataformas sem implementação."""
         from models.firewall_contracts import FirewallCapability, SupportStatus

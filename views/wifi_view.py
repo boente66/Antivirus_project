@@ -155,8 +155,16 @@ class WiFiView(QWidget):
 
             self.wifi_list.clear()
 
-            for ssid in networks:
-                self.wifi_list.addItem(ssid)
+            for network in networks:
+                ssid = str(network.get("ssid") or "").strip()
+                if not ssid:
+                    continue
+                signal = network.get("signal")
+                security = str(network.get("security") or "Sem segurança")
+                details = [ssid, security]
+                if signal not in (None, ""):
+                    details.append(f"sinal {signal}%")
+                self.wifi_list.addItem(" - ".join(details))
 
         except Exception as e:
 
@@ -311,7 +319,13 @@ class WiFiView(QWidget):
 
             wifi_networks = self.controller.get_wifi_networks()
 
-            self.wifi_list.addItems(wifi_networks)
+            for network in wifi_networks:
+                if isinstance(network, dict):
+                    ssid = str(network.get("ssid") or "").strip()
+                    if ssid:
+                        self.wifi_list.addItem(ssid)
+                else:
+                    self.wifi_list.addItem(str(network))
 
         except Exception:
             pass

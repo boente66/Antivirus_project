@@ -8,6 +8,8 @@ class FirewallOperation(str, Enum):
     DETECT_CAPABILITY = "detect_capability"
     GET_STATUS = "get_status"
     LIST_RULES = "list_rules"
+    LIST_APPLICATIONS = "list_applications"
+    DIAGNOSE = "diagnose"
     ENABLE = "enable"
     DISABLE = "disable"
     ADD_RULE = "add_rule"
@@ -142,3 +144,14 @@ class FirewallCommandResult:
     @property
     def succeeded(self):
         return self.status == OperationStatus.SUCCESS.value
+
+
+@dataclass(frozen=True)
+class FirewallApplicationProfile:
+    """Perfil de aplicação anunciado pelo backend do Firewall."""
+
+    name: str
+    action: Optional[str] = None
+    rule_id: Optional[str] = None
+    rule_version: Optional[int] = None
+    managed: bool = False

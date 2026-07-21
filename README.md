@@ -48,7 +48,21 @@ acima para evitar dois processos atualizando a mesma base.
 3.2 Verificação de arquivos:
 O usuário pode executar uma verificação inteligente ou personalizada. A verificação inteligente analisa diretórios comuns como Downloads e Desktop, enquanto a personalizada permite selecionar qualquer diretório.
 3.3 Firewall:
-O módulo de firewall permite bloquear ou liberar portas. No Linux, utiliza-se o UFW; no Windows, o netsh; e no macOS, o sistema interno de firewall. O usuário pode criar regras personalizadas para controle de tráfego.
+O módulo de firewall permite ativar ou desativar o backend, bloquear ou liberar
+portas e remover regras criadas pelo aplicativo. No Linux, a implementação
+validada utiliza o UFW por meio do `LinuxAdapter`. Operações protegidas pedem
+consentimento na interface e autorização pelo Polkit/pkexec; a aplicação não é
+executada integralmente como `root` e nunca captura a senha administrativa.
+
+A aba de aplicativos lista exclusivamente perfis publicados pelo UFW em
+`/etc/ufw/applications.d`. Esses perfis representam portas de serviços; o UFW
+não oferece bloqueio confiável por processo ou executável. Regras externas são
+apresentadas como protegidas e somente regras criadas pelo Antivírus podem ser
+removidas pela interface.
+
+Windows e macOS permanecem em modo somente leitura enquanto suas operações de
+escrita específicas não forem implementadas e validadas nos respectivos
+adapters.
 3.4 Limpeza do sistema:
 A limpeza remove arquivos temporários, caches e logs desnecessários. Essa funcionalidade foi inspirada em ferramentas como CCleaner e BleachBit, adaptadas para um contexto multiplataforma.
 3.5 Desinstalação de aplicativos:

@@ -10,6 +10,7 @@ import psutil
 
 from .platform_adapter import PlatformAdapter
 from models.firewall_contracts import (
+    FirewallApplicationProfile,
     FirewallCapability,
     FirewallOperationResult,
     OperationStatus,
@@ -303,26 +304,7 @@ class LinuxAdapter(PlatformAdapter):
             )
 
         self.create_firewall_adapter(executor)
-        status_result = self.read_status("capability-probe")
         if other_active:
-            return FirewallCapability(
-                platform=self.platform,
-                backend=self.backend,
-                installed=True,
-                active=(
-                    status_result.confirmed_state.get("active")
-                    if status_result.succeeded else None
-                ),
-                readable=status_result.succeeded,
-                writable=False,
-                requires_privilege=True,
-                support_status=SupportStatus.BACKEND_CONFLICT.value,
-                reason=(
-                    "UFW está presente, mas outro backend parece ativo: "
-                    f"{', '.join(other_active)}."
-                ),
-            )
-        if not status_result.succeeded:
             return FirewallCapability(
                 platform=self.platform,
                 backend=self.backend,
@@ -331,21 +313,19 @@ class LinuxAdapter(PlatformAdapter):
                 readable=False,
                 writable=False,
                 requires_privilege=True,
-                support_status=SupportStatus.UNAVAILABLE.value,
+                support_status=SupportStatus.BACKEND_CONFLICT.value,
                 reason=(
-                    status_result.message
-                    or "UFW instalado, mas seu estado não pôde ser consultado."
+                    "UFW está presente, mas outro backend parece ativo: "
+                    f"{', '.join(other_active)}."
                 ),
             )
-
         pkexec_available = bool(which("pkexec"))
-        active = bool(status_result.confirmed_state.get("active"))
         return FirewallCapability(
             platform=self.platform,
             backend=self.backend,
             installed=True,
-            active=active,
-            readable=True,
+            active=None,
+            readable=pkexec_available,
             writable=pkexec_available,
             requires_privilege=True,
             support_status=(
@@ -353,8 +333,8 @@ class LinuxAdapter(PlatformAdapter):
                 if pkexec_available else SupportStatus.READ_ONLY.value
             ),
             reason=(
-                "UFW disponível e validado."
-                if pkexec_available else "UFW legível, mas pkexec não está disponível."
+                "UFW disponível; o estado será consultado com autorização Polkit."
+                if pkexec_available else "UFW instalado, mas pkexec não está disponível."
             ),
         )
 
@@ -468,6 +448,79 @@ class LinuxAdapter(PlatformAdapter):
             message="Regras do UFW confirmadas.",
         ), rules
 
+    def list_firewall_applications(self, operation_id="list_applications"):
+        command = self.firewall_executor.execute(
+            FirewallAdminOperation.UFW_APP_LIST
+        )
+        if not command.succeeded:
+            return self._firewall_result_from_command(operation_id, command), []
+        profiles = self.parse_application_profiles(command.stdout)
+        return FirewallOperationResult(
+            operation_id=operation_id,
+            status=OperationStatus.SUCCESS.value,
+            backend=self.backend,
+            confirmed_state={"profile_count": len(profiles)},
+            verified=True,
+            exit_code=command.exit_code,
+            stdout=command.stdout,
+            message="Perfis de aplicação do UFW confirmados.",
+        ), profiles
+
+    def diagnose_firewall(self, operation_id="diagnose"):
+        checks = {
+            "ufw_installed": bool(shutil.which("ufw")),
+            "pkexec_installed": bool(shutil.which("pkexec")),
+            "systemctl_installed": bool(shutil.which("systemctl")),
+        }
+        problems = []
+        if not checks["ufw_installed"]:
+            problems.append("UFW não está instalado.")
+        if not checks["pkexec_installed"]:
+            problems.append("pkexec/Polkit não está disponível para autorização segura.")
+        if checks["systemctl_installed"] and checks["ufw_installed"]:
+            checks.update(self._read_ufw_service_state())
+            if checks.get("ufw_service_enabled") is False:
+                problems.append("O serviço ufw.service não está habilitado no boot.")
+            elif checks.get("ufw_service_enabled") is None:
+                problems.append("Não foi possível consultar o estado de ufw.service.")
+        verified = not problems
+        return FirewallOperationResult(
+            operation_id=operation_id,
+            status=(
+                OperationStatus.SUCCESS.value
+                if verified else OperationStatus.UNAVAILABLE.value
+            ),
+            backend=self.backend,
+            confirmed_state={"checks": checks, "problems": tuple(problems)},
+            verified=verified,
+            error_code=None if verified else "firewall_service_problem",
+            message=(
+                "Componentes do Firewall disponíveis."
+                if verified else "Foram encontrados problemas na integração do Firewall."
+            ),
+        )
+
+    def _read_ufw_service_state(self):
+        state = {}
+        for key, argument in (
+            ("ufw_service_enabled", "is-enabled"),
+            ("ufw_service_active", "is-active"),
+        ):
+            result = self._probe_firewall_command(
+                [shutil.which("systemctl"), argument, "ufw.service"],
+                subprocess.run,
+            )
+            if result is None:
+                state[key] = None
+            else:
+                output = str(result.stdout or "").strip().lower()
+                state[key] = (
+                    True if output in {"enabled", "enabled-runtime", "active"}
+                    else False if output in {"disabled", "inactive", "failed"}
+                    else None
+                )
+        return state
+
     def enable(self, operation_id):
         return self._change_firewall_state(
             operation_id, FirewallAdminOperation.UFW_ENABLE, True
@@ -499,10 +552,13 @@ class LinuxAdapter(PlatformAdapter):
         )
 
     def add_rule(self, operation_id, rule):
-        arguments = self.build_firewall_add_arguments(rule)
-        command = self.firewall_executor.execute(
-            FirewallAdminOperation.UFW_ADD_RULE, arguments
-        )
+        if rule.application:
+            arguments = self.build_application_rule_arguments(rule)
+            operation = FirewallAdminOperation.UFW_ADD_APPLICATION_RULE
+        else:
+            arguments = self.build_firewall_add_arguments(rule)
+            operation = FirewallAdminOperation.UFW_ADD_RULE
+        command = self.firewall_executor.execute(operation, arguments)
         if not command.succeeded:
             return self._firewall_result_from_command(
                 operation_id, command, rule.to_dict()
@@ -575,6 +631,34 @@ class LinuxAdapter(PlatformAdapter):
         arguments.extend(("comment", f"{comment} [av-id:{rule.id}]".strip()))
         return tuple(arguments)
 
+    @staticmethod
+    def build_application_rule_arguments(rule):
+        return (
+            rule.action,
+            rule.direction,
+            rule.application,
+            "comment",
+            f"{rule.name} [av-id:{rule.id}]".strip(),
+        )
+
+    @staticmethod
+    def parse_application_profiles(output):
+        profiles = []
+        seen = set()
+        in_list = False
+        for raw_line in str(output or "").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.lower().startswith("available applications"):
+                in_list = True
+                continue
+            if not in_list or line in seen:
+                continue
+            seen.add(line)
+            profiles.append(FirewallApplicationProfile(name=line))
+        return profiles
+
     def parse_firewall_rules(self, output):
         rules = []
         for raw_line in str(output or "").splitlines():
@@ -589,10 +673,18 @@ class LinuxAdapter(PlatformAdapter):
                 source = match.group("source")
             source = source.replace("(v6)", "").strip()
             port_match = self.PORT_PATTERN.match(target)
-            if not port_match:
-                continue
-            start = int(port_match.group("start"))
-            end = int(port_match.group("end") or start)
+            application = None
+            if port_match:
+                start = int(port_match.group("start"))
+                end = int(port_match.group("end") or start)
+                protocol = port_match.group("protocol").lower()
+            else:
+                application = target.replace("(v6)", "").strip()
+                if not application:
+                    continue
+                start = None
+                end = None
+                protocol = "any"
             action = match.group("action").lower()
             action = "deny" if action in {"deny", "reject"} else "allow"
             raw_comment = comment.strip()
@@ -608,18 +700,19 @@ class LinuxAdapter(PlatformAdapter):
                 f"ufw-external:{native_id}:{target}:{action}:{source}",
             )
             rules.append(FirewallRule(
-                name=clean_comment or f"UFW {native_id}",
+                name=clean_comment or application or f"UFW {native_id}",
                 id=internal_id or external_id,
                 native_id=native_id,
                 backend=self.backend,
                 platform=self.platform,
                 action=action,
                 direction=match.group("direction").lower(),
-                protocol=port_match.group("protocol").lower(),
+                protocol=protocol,
                 source="any" if source.lower().startswith("anywhere") else source,
                 destination="any",
                 port_start=start,
                 port_end=end,
+                application=application,
                 comment=clean_comment,
                 origin="user" if internal_id else "system",
                 protected=not bool(internal_id),
@@ -629,6 +722,12 @@ class LinuxAdapter(PlatformAdapter):
 
     @staticmethod
     def rules_match(current, requested):
+        if current.application or requested.application:
+            return all((
+                current.application == requested.application,
+                current.action == requested.action,
+                current.direction == requested.direction,
+            ))
         return all((
             current.action == requested.action,
             current.direction == requested.direction,

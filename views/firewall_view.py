@@ -19,6 +19,7 @@ from controllers.firewall_controller import FirewallController
 from models.firewall_contracts import FirewallOperation, OperationStatus
 from utils.icon_loader import get_icon
 from views.components import MetricCard
+from views.admin_dialog import AdminPermissionDialog
 from views.firewall_rule_dialog import FirewallRuleDialog
 from views.permissions_view import PermissionsView
 from views.wifi_view import WiFiView
@@ -41,6 +42,7 @@ class FirewallView(QWidget):
         self.timer.timeout.connect(self._update_connections)
         self._running_mutations = set()
         self._initial_reads_requested = False
+        self._operation_names = {}
 
         self._build_ui()
         self._connect_controller()
@@ -101,9 +103,13 @@ class FirewallView(QWidget):
         self.list_rules_button = self._button(
             "Atualizar Regras", "update", "secondary", self.list_rules
         )
+        self.diagnose_button = self._button(
+            "Diagnosticar Serviços", "status", "secondary", self.diagnose_firewall
+        )
         rule_actions.addWidget(self.add_rule_button)
         rule_actions.addWidget(self.remove_rule_button)
         rule_actions.addWidget(self.list_rules_button)
+        rule_actions.addWidget(self.diagnose_button)
         layout.addLayout(rule_actions)
 
         state_actions = QHBoxLayout()
@@ -153,6 +159,9 @@ class FirewallView(QWidget):
         self.controller.awaiting_authorization.connect(self._on_authorization)
         self.controller.operation_completed.connect(self._on_operation_completed)
         self.controller.operation_failed.connect(self._on_operation_failed)
+        diagnostics_signal = getattr(self.controller, "diagnostics_updated", None)
+        if diagnostics_signal is not None:
+            diagnostics_signal.connect(self._show_diagnostics)
         self.controller.log_updated.connect(self.log_message)
 
     def _on_capability_changed(self, capability):
@@ -161,7 +170,6 @@ class FirewallView(QWidget):
             self._initial_reads_requested = True
             if capability.readable:
                 self.controller.refresh_status()
-                self.controller.refresh_rules()
 
     def _apply_capability(self, capability):
         if capability.active is True:
@@ -191,11 +199,15 @@ class FirewallView(QWidget):
         self.activate_button.setEnabled(enabled and capability.active is not True)
         self.deactivate_button.setEnabled(enabled and capability.active is not False)
         self.list_rules_button.setEnabled(capability.readable and not mutation_running)
+        self.diagnose_button.setEnabled(not mutation_running)
 
     def add_rule(self):
         dialog = FirewallRuleDialog(self)
         if dialog.exec_() == dialog.Accepted:
-            self.controller.add_rule(payload=dialog.payload())
+            if AdminPermissionDialog.request(
+                self, "Adicionar uma regra ao Firewall do sistema."
+            ):
+                self.controller.add_rule(payload=dialog.payload())
 
     def remove_rule(self):
         item = self.rules_list.currentItem()
@@ -209,19 +221,47 @@ class FirewallView(QWidget):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
-        if answer == QMessageBox.Yes:
+        if answer == QMessageBox.Yes and AdminPermissionDialog.request(
+            self, f"Remover a regra '{rule.name}' do Firewall do sistema."
+        ):
             self.controller.remove_rule(rule.id, rule.version)
 
     def list_rules(self):
         self.controller.refresh_rules()
 
     def activate_firewall(self):
-        self.controller.activate_firewall()
+        answer = QMessageBox.question(
+            self,
+            "Ativar Firewall",
+            "Ativar o Firewall UFW agora? As regras existentes passarão a ser aplicadas.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if answer == QMessageBox.Yes and AdminPermissionDialog.request(
+            self, "Ativar o Firewall UFW do sistema."
+        ):
+            self.controller.activate_firewall()
 
     def deactivate_firewall(self):
-        self.controller.deactivate_firewall()
+        answer = QMessageBox.warning(
+            self,
+            "Desativar Firewall",
+            "Desativar o Firewall reduz a proteção de rede do sistema. Deseja continuar?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer == QMessageBox.Yes and AdminPermissionDialog.request(
+            self, "Desativar o Firewall UFW do sistema."
+        ):
+            self.controller.deactivate_firewall()
+
+    def diagnose_firewall(self):
+        diagnose = getattr(self.controller, "diagnose_firewall", None)
+        if diagnose is not None:
+            diagnose()
 
     def _on_operation_started(self, _operation_id, operation):
+        self._operation_names[_operation_id] = operation
         if operation in self.MUTATIONS:
             self._running_mutations.add(_operation_id)
             self.status_label.setText("Operação do Firewall em andamento…")
@@ -231,15 +271,31 @@ class FirewallView(QWidget):
         self.status_label.setText("Aguardando autorização do sistema…")
 
     def _on_operation_completed(self, result):
+        operation = self._operation_names.pop(result.operation_id, None)
         self._operation_finished(result)
         if result.operation_id and result.changed:
             QMessageBox.information(self, "Firewall", result.message)
         if result.changed:
             self.controller.refresh_status()
+        elif operation == FirewallOperation.GET_STATUS.value:
             self.controller.refresh_rules()
+        elif operation == FirewallOperation.LIST_RULES.value:
+            refresh = getattr(self.controller, "refresh_applications", None)
+            if refresh is not None:
+                refresh()
+        if result.changed and operation in {
+            FirewallOperation.ADD_RULE.value,
+            FirewallOperation.DELETE_RULE.value,
+        }:
+            refresh = getattr(self.controller, "refresh_applications", None)
+            if refresh is not None:
+                refresh()
 
     def _on_operation_failed(self, result):
+        operation = self._operation_names.pop(result.operation_id, None)
         self._operation_finished(result)
+        if operation == FirewallOperation.DIAGNOSE.value:
+            return
         if result.status == OperationStatus.CANCELLED.value:
             QMessageBox.information(self, "Autorização cancelada", result.message)
         elif result.status not in {
@@ -255,12 +311,16 @@ class FirewallView(QWidget):
     def _display_rules(self, rules):
         self.rules_list.clear()
         for rule in rules:
-            port = str(rule.port_start)
-            if rule.port_end != rule.port_start:
+            if rule.application:
+                port = f"perfil: {rule.application}"
+            else:
+                port = str(rule.port_start)
+            if not rule.application and rule.port_end != rule.port_start:
                 port = f"{rule.port_start}-{rule.port_end}"
             text = (
                 f"{rule.name} | {rule.action.upper()} {rule.direction.upper()} | "
-                f"{port}/{rule.protocol} | origem: {rule.source}"
+                f"{port}{'' if rule.application else '/' + rule.protocol} | "
+                f"origem: {rule.source}"
             )
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, rule)
@@ -268,6 +328,23 @@ class FirewallView(QWidget):
                 item.setToolTip("Regra externa/protegida: remoção desabilitada.")
             self.rules_list.addItem(item)
         self._update_write_controls()
+
+    def _show_diagnostics(self, result):
+        state = result.confirmed_state if isinstance(result.confirmed_state, dict) else {}
+        checks = state.get("checks", {})
+        problems = list(state.get("problems", ()))
+        lines = [
+            f"UFW instalado: {'sim' if checks.get('ufw_installed') else 'não'}",
+            f"Polkit/pkexec: {'sim' if checks.get('pkexec_installed') else 'não'}",
+        ]
+        if checks.get("ufw_service_enabled") is not None:
+            lines.append(
+                "Serviço habilitado no boot: "
+                + ("sim" if checks.get("ufw_service_enabled") else "não")
+            )
+        if problems:
+            lines.extend(["", "Problemas:", *[f"• {item}" for item in problems]])
+        QMessageBox.information(self, "Diagnóstico do Firewall", "\n".join(lines))
 
     def start_monitor(self):
         self.controller.start_monitoring()

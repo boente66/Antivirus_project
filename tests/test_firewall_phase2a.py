@@ -209,17 +209,18 @@ class FirewallDetectionTests(unittest.TestCase):
         self.assertFalse(capability.active)
         self.assertTrue(capability.writable)
 
-    def test_ufw_installed_active(self):
+    def test_ufw_status_is_deferred_to_authorized_read(self):
         mapping = {"ufw": "/usr/sbin/ufw", "pkexec": "/usr/bin/pkexec"}
         capability = FirewallDetector(
             system_name=lambda: "Linux",
             which=self._which(mapping),
             runner=self._runner_for(ACTIVE_EMPTY),
         ).detect_capability()
-        self.assertTrue(capability.active)
+        self.assertIsNone(capability.active)
+        self.assertTrue(capability.readable)
         self.assertEqual(capability.support_status, SupportStatus.SUPPORTED.value)
 
-    def test_ufw_installed_but_status_unreadable(self):
+    def test_detection_does_not_run_ufw_status_without_authorization(self):
         mapping = {"ufw": "/usr/sbin/ufw", "pkexec": "/usr/bin/pkexec"}
 
         def runner(command, **_kwargs):
@@ -231,9 +232,10 @@ class FirewallDetectionTests(unittest.TestCase):
             system_name=lambda: "Linux", which=self._which(mapping), runner=runner
         ).detect_capability()
         self.assertTrue(capability.installed)
-        self.assertFalse(capability.readable)
-        self.assertFalse(capability.writable)
-        self.assertEqual(capability.support_status, SupportStatus.UNAVAILABLE.value)
+        self.assertTrue(capability.readable)
+        self.assertTrue(capability.writable)
+        self.assertIsNone(capability.active)
+        self.assertEqual(capability.support_status, SupportStatus.SUPPORTED.value)
 
     def test_backend_ambiguous_blocks_write(self):
         mapping = {

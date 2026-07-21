@@ -1,11 +1,12 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QListWidget,
-    QPushButton, QLineEdit, QMessageBox, QLabel
+    QWidget, QVBoxLayout, QListWidget, QListWidgetItem,
+    QPushButton, QMessageBox, QLabel
 )
 from PyQt5.QtCore import Qt
 
 from controllers.firewall_controller import FirewallController
 from utils.icon_loader import get_icon
+from views.admin_dialog import AdminPermissionDialog
 
 
 class PermissionsView(QWidget):
@@ -30,7 +31,8 @@ class PermissionsView(QWidget):
         layout.addWidget(title)
 
         notice = QLabel(
-            "Regras por aplicativo estão em modo somente leitura nesta etapa."
+            "Perfis de aplicação publicados pelo UFW. O controle afeta as "
+            "portas do perfil, não encerra nem bloqueia processos diretamente."
         )
         notice.setWordWrap(True)
         layout.addWidget(notice)
@@ -41,20 +43,9 @@ class PermissionsView(QWidget):
 
         self.app_list = QListWidget()
         self.app_list.setSelectionMode(QListWidget.SingleSelection)
+        self.app_list.itemSelectionChanged.connect(self._update_controls)
 
         layout.addWidget(self.app_list)
-
-        # -------------------------
-        # Campo de entrada
-        # -------------------------
-
-        self.app_input = QLineEdit()
-        self.app_input.setPlaceholderText("Nome do aplicativo")
-
-        # Enter adiciona automaticamente
-        self.app_input.returnPressed.connect(self.allow_permission)
-
-        layout.addWidget(self.app_input)
 
         # -------------------------
         # Botões
@@ -88,14 +79,20 @@ class PermissionsView(QWidget):
         layout.addWidget(self.block_button)
         layout.addWidget(self.remove_button)
 
-        self.app_input.setEnabled(False)
-        for button in (self.allow_button, self.block_button, self.remove_button):
-            button.setEnabled(False)
-            button.setToolTip("Escrita por aplicativo não suportada na Fase 2A.")
+        self.refresh_button = self.create_button(
+            "Atualizar perfis",
+            "resources/icons/update.svg",
+            "#3498DB",
+            "#5DADE2",
+            self.refresh_permissions,
+        )
+        layout.addWidget(self.refresh_button)
 
-        # -------------------------
-
-        self.refresh_permissions()
+        applications_signal = getattr(self.controller, "applications_updated", None)
+        if applications_signal is not None:
+            applications_signal.connect(self._display_profiles)
+        self.controller.capability_changed.connect(lambda _cap: self._update_controls())
+        self._update_controls()
 
         self.setLayout(layout)
 
@@ -120,44 +117,40 @@ class PermissionsView(QWidget):
     # ----------------------------------------------------
 
     def allow_permission(self):
-
-        app_name = self.app_input.text().strip()
-
-        if not app_name:
-            QMessageBox.warning(self, "Entrada inválida", "Informe o nome do aplicativo.")
+        profile = self._selected_profile()
+        if profile is None:
+            QMessageBox.warning(self, "Seleção necessária", "Selecione um perfil UFW.")
             return
-
-        self.controller.add_permission(app_name, True)
-
-        self.app_input.clear()
-
-        self.refresh_permissions()
-
-        QMessageBox.information(
-            self,
-            "Permissão Concedida",
-            f"{app_name} foi permitido."
-        )
+        if not AdminPermissionDialog.request(
+            self, f"Permitir tráfego de entrada para o perfil '{profile.name}'."
+        ):
+            return
+        self.controller.add_permission(profile.name, True)
 
     # ----------------------------------------------------
     # Bloquear aplicativo
     # ----------------------------------------------------
 
     def block_permission(self):
-
-        app_name = self.app_input.text().strip()
-
-        if not app_name:
-            QMessageBox.warning(self, "Entrada inválida", "Informe o nome do aplicativo.")
+        profile = self._selected_profile()
+        if profile is None:
+            QMessageBox.warning(self, "Seleção necessária", "Selecione um perfil UFW.")
             return
-
-        self.controller.add_permission(app_name, False)
-
-        self.app_input.clear()
-
-        self.refresh_permissions()
-
-        self.show_warning(app_name)
+        warning = self.controller.notify_impact(profile.name)
+        answer = QMessageBox.warning(
+            self,
+            "Confirmar bloqueio",
+            f"{warning}\n\nDeseja continuar?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        if not AdminPermissionDialog.request(
+            self, f"Bloquear tráfego de entrada para o perfil '{profile.name}'."
+        ):
+            return
+        self.controller.add_permission(profile.name, False)
 
     # ----------------------------------------------------
     # Remover aplicativo
@@ -165,25 +158,31 @@ class PermissionsView(QWidget):
 
     def remove_permission(self):
 
-        selected = self.app_list.currentItem()
-
-        if not selected:
+        profile = self._selected_profile()
+        if profile is None:
             QMessageBox.warning(self, "Seleção necessária", "Selecione um aplicativo da lista.")
             return
-
-        text = selected.text()
-
-        app_name = text.split(" - ")[0]
-
-        self.controller.remove_permission(app_name)
-
-        self.refresh_permissions()
-
-        QMessageBox.information(
+        if not profile.managed:
+            QMessageBox.warning(
+                self,
+                "Regra protegida",
+                "Somente regras de aplicação criadas pelo Antivírus podem ser removidas.",
+            )
+            return
+        answer = QMessageBox.question(
             self,
-            "Aplicativo removido",
-            f"{app_name} removido da lista."
+            "Remover regra de aplicação",
+            f"Remover a regra do perfil '{profile.name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
+        if answer != QMessageBox.Yes:
+            return
+        if not AdminPermissionDialog.request(
+            self, f"Remover a regra de aplicação '{profile.name}'."
+        ):
+            return
+        self.controller.remove_permission(profile)
 
     # ----------------------------------------------------
     # Aviso de impacto
@@ -206,9 +205,34 @@ class PermissionsView(QWidget):
     # ----------------------------------------------------
 
     def refresh_permissions(self):
+        refresh = getattr(self.controller, "refresh_applications", None)
+        if refresh is not None:
+            refresh()
 
+    def _display_profiles(self, profiles):
         self.app_list.clear()
+        for profile in profiles:
+            state = {
+                "allow": "PERMITIDO",
+                "deny": "BLOQUEADO",
+            }.get(profile.action, "SEM REGRA")
+            item = QListWidgetItem(f"{profile.name} — {state}")
+            item.setData(Qt.UserRole, profile)
+            self.app_list.addItem(item)
+        self._update_controls()
 
-        permissions = self.controller.get_permissions()
+    def _selected_profile(self):
+        item = self.app_list.currentItem()
+        return item.data(Qt.UserRole) if item else None
 
-        self.app_list.addItems(permissions)
+    def _update_controls(self):
+        profile = self._selected_profile()
+        capability = self.controller.capability
+        writable = capability.writable and not capability.write_blocked
+        without_rule = profile is not None and profile.action is None
+        self.allow_button.setEnabled(writable and without_rule)
+        self.block_button.setEnabled(writable and without_rule)
+        self.remove_button.setEnabled(
+            writable and profile is not None and profile.managed
+        )
+        self.refresh_button.setEnabled(capability.readable)

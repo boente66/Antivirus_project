@@ -14,22 +14,28 @@ from models.firewall_contracts import (
 
 class FirewallAdminOperation(str, Enum):
     UFW_STATUS = "UFW_STATUS"
+    UFW_APP_LIST = "UFW_APP_LIST"
     UFW_ENABLE = "UFW_ENABLE"
     UFW_DISABLE = "UFW_DISABLE"
     UFW_ADD_RULE = "UFW_ADD_RULE"
+    UFW_ADD_APPLICATION_RULE = "UFW_ADD_APPLICATION_RULE"
     UFW_DELETE_RULE = "UFW_DELETE_RULE"
 
 
 class FirewallAdminExecutor:
     """Executa exclusivamente operações UFW previamente allowlisted."""
 
-    WRITE_OPERATIONS = {
+    PRIVILEGED_OPERATIONS = {
+        FirewallAdminOperation.UFW_STATUS.value,
+        FirewallAdminOperation.UFW_APP_LIST.value,
         FirewallAdminOperation.UFW_ENABLE.value,
         FirewallAdminOperation.UFW_DISABLE.value,
         FirewallAdminOperation.UFW_ADD_RULE.value,
+        FirewallAdminOperation.UFW_ADD_APPLICATION_RULE.value,
         FirewallAdminOperation.UFW_DELETE_RULE.value,
     }
     SAFE_VALUE = re.compile(r"^[\w .:/()\[\]\-]{1,160}$", re.UNICODE)
+    SAFE_PROFILE = re.compile(r"^[\w .()+@_-]{1,80}$", re.UNICODE)
 
     def __init__(
         self,
@@ -71,7 +77,7 @@ class FirewallAdminExecutor:
                 str(exc),
             )
 
-        privileged = operation in self.WRITE_OPERATIONS
+        privileged = operation in self.PRIVILEGED_OPERATIONS
         if privileged:
             pkexec_path = self._resolve("pkexec")
             if not pkexec_path:
@@ -194,6 +200,10 @@ class FirewallAdminExecutor:
             if arguments:
                 raise ValueError("UFW_STATUS não aceita argumentos externos.")
             return ("status", "numbered")
+        if operation == FirewallAdminOperation.UFW_APP_LIST.value:
+            if arguments:
+                raise ValueError("UFW_APP_LIST não aceita argumentos externos.")
+            return ("app", "list")
         if operation == FirewallAdminOperation.UFW_ENABLE.value:
             if arguments:
                 raise ValueError("UFW_ENABLE não aceita argumentos externos.")
@@ -208,7 +218,23 @@ class FirewallAdminExecutor:
             return ("--force", "delete", arguments[0])
         if operation == FirewallAdminOperation.UFW_ADD_RULE.value:
             return self._validate_add_rule(arguments)
+        if operation == FirewallAdminOperation.UFW_ADD_APPLICATION_RULE.value:
+            return self._validate_application_rule(arguments)
         raise ValueError("Operação não reconhecida.")
+
+    def _validate_application_rule(self, arguments):
+        if len(arguments) != 5:
+            raise ValueError("Estrutura de regra de aplicação UFW inválida.")
+        action, direction, profile, keyword, comment = arguments
+        if action not in {"allow", "deny"}:
+            raise ValueError("Ação UFW inválida.")
+        if direction not in {"in", "out"}:
+            raise ValueError("Direção UFW inválida.")
+        if not self.SAFE_PROFILE.fullmatch(profile):
+            raise ValueError("Perfil de aplicação UFW inválido.")
+        if keyword != "comment" or not self.SAFE_VALUE.fullmatch(comment):
+            raise ValueError("Comentário da regra de aplicação inválido.")
+        return arguments
 
     def _validate_add_rule(self, arguments):
         if len(arguments) not in {10, 12}:

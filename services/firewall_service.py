@@ -3,6 +3,7 @@ import threading
 from core.platform.platform_factory import PlatformFactory
 from database.repositories.firewall_audit_repository import FirewallAuditRepository
 from models.firewall_contracts import (
+    FirewallApplicationProfile,
     FirewallCapability,
     FirewallOperation,
     FirewallOperationRequest,
@@ -59,6 +60,8 @@ class FirewallService:
         )
         self._capability_loaded = False
         self._rules = []
+        self._rules_loaded = False
+        self._applications = []
         self._mutation_lock = threading.Lock()
 
     @property
@@ -67,17 +70,21 @@ class FirewallService:
 
     def get_privilege_requirement(self, request):
         operation = str(request.operation)
-        required = operation in self.MUTATIONS
+        required = operation in self.MUTATIONS or operation in {
+            FirewallOperation.GET_STATUS.value,
+            FirewallOperation.LIST_RULES.value,
+            FirewallOperation.LIST_APPLICATIONS.value,
+        }
         return PrivilegeRequirement(
             required=required,
             operation=operation,
             reason=(
-                "Esta alteração modifica as regras do Firewall do sistema."
-                if required else "Operação somente de leitura."
+                "Esta operação requer acesso administrativo ao backend do Firewall."
+                if required else "Operação somente de leitura sem elevação."
             ),
             scope=self._scope_for(request),
             backend=self.capability.backend,
-            can_prompt=required and self.capability.writable,
+            can_prompt=required and bool(self.capability.readable or self.capability.writable),
         )
 
     def execute(self, request):
@@ -135,6 +142,10 @@ class FirewallService:
             return self._read_status(request)
         if operation == FirewallOperation.LIST_RULES:
             return self._list_rules(request)
+        if operation == FirewallOperation.LIST_APPLICATIONS:
+            return self._list_applications(request)
+        if operation == FirewallOperation.DIAGNOSE:
+            return self._diagnose(request)
 
         if not self._mutation_lock.acquire(blocking=False):
             result = self._result(
@@ -152,6 +163,9 @@ class FirewallService:
 
     def snapshot_rules(self):
         return tuple(self._rules)
+
+    def snapshot_applications(self):
+        return tuple(self._applications)
 
     def _detect_capability(self, request):
         try:
@@ -234,6 +248,74 @@ class FirewallService:
             result = FirewallOperationResult(
                 **{**result.__dict__, "confirmed_state": tuple(rules)}
             )
+        self._safe_audit("operation_completed", request, result=result)
+        return result
+
+    def _list_applications(self, request):
+        if not self.adapter or not hasattr(self.adapter, "list_firewall_applications"):
+            result = self._result(
+                request.operation_id,
+                OperationStatus.UNSUPPORTED,
+                "application_listing_unsupported",
+                "Perfis de aplicação não são suportados neste backend.",
+            )
+            self._safe_audit("operation_completed", request, result=result)
+            return result
+        if self._rules_loaded:
+            rules = list(self._rules)
+        else:
+            rules_result, rules = self._refresh_rules(
+                f"{request.operation_id}:rules"
+            )
+            if not rules_result.succeeded:
+                self._safe_audit("operation_completed", request, result=rules_result)
+                return self._replace_operation_id(rules_result, request.operation_id)
+        result, profiles = self.adapter.list_firewall_applications(
+            request.operation_id
+        )
+        if result.succeeded:
+            application_rules = {
+                rule.application: rule for rule in rules if rule.application
+            }
+            self._applications = [
+                FirewallApplicationProfile(
+                    name=profile.name,
+                    action=(
+                        application_rules[profile.name].action
+                        if profile.name in application_rules else None
+                    ),
+                    rule_id=(
+                        application_rules[profile.name].id
+                        if profile.name in application_rules else None
+                    ),
+                    rule_version=(
+                        application_rules[profile.name].version
+                        if profile.name in application_rules else None
+                    ),
+                    managed=(
+                        profile.name in application_rules
+                        and application_rules[profile.name].editable
+                        and not application_rules[profile.name].protected
+                    ),
+                )
+                for profile in profiles
+            ]
+            result = FirewallOperationResult(
+                **{**result.__dict__, "confirmed_state": tuple(self._applications)}
+            )
+        self._safe_audit("operation_completed", request, result=result)
+        return result
+
+    def _diagnose(self, request):
+        if not self.adapter or not hasattr(self.adapter, "diagnose_firewall"):
+            result = self._result(
+                request.operation_id,
+                OperationStatus.UNSUPPORTED,
+                "diagnostic_unsupported",
+                "Diagnóstico não suportado neste backend.",
+            )
+        else:
+            result = self.adapter.diagnose_firewall(request.operation_id)
         self._safe_audit("operation_completed", request, result=result)
         return result
 
@@ -394,6 +476,7 @@ class FirewallService:
         result, rules = self.adapter.list_rules(operation_id)
         if result.succeeded:
             self._rules = list(rules)
+            self._rules_loaded = True
         return result, list(self._rules)
 
     def _audit(self, event_type, request, result=None, rule=None):
